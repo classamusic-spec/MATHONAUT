@@ -9,6 +9,7 @@ testing/game.cjs
 web/artifact.html
 web/screenshot-run.png
 web/shot-*.png
+web/polish-*.png
 
 # misc
 *.log

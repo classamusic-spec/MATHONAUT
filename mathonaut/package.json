@@ -4,7 +4,7 @@
   "private": true,
   "description": "A 3-lane space runner where the maths is the steering, never a quiz popup. Ages 4-10.",
   "scripts": {
-    "build:core": "esbuild game/index.js --bundle --format=cjs --outfile=testing/game.cjs",
+    "build:core": "esbuild game/index.js --bundle --format=cjs --external:three --outfile=testing/game.cjs",
     "build:web": "node web/build.js",
     "pretest": "npm run build:core",
     "test": "node testing/run.js"

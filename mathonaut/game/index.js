@@ -2,10 +2,14 @@
    MATHONAUT — framework-free game core
 
    This is the extracted, framework-free core (per docs/03-architecture.md and
-   the Phase 0.1 ticket in docs/06-build-plan.md). It has NO React and NO
-   top-level three.js import: `createGame(root, T3)` receives THREE as an
-   argument, which is exactly what lets the headless harness run it in jsdom
-   with a fake WebGLRenderer.
+   the Phase 0.1 ticket in docs/06-build-plan.md). It has NO React. All THREE
+   scene work goes through `createGame(root, T3)`'s injected THREE, which is what
+   lets the headless harness run it in jsdom with a fake WebGLRenderer.
+
+   The only three.js *imports* are the optional post-processing add-ons (bloom).
+   They are bundled but never run headless: the composer is built only when a
+   real WebGL renderer is present (the fake test renderer has no setRenderTarget),
+   so tests still drive everything through the injected THREE.
 
    Exports:
      MARKUP                 static HTML+CSS string (UI)
@@ -15,6 +19,13 @@
    Do not add a framework dependency here. See CLAUDE.md.
    ============================================================ */
 import { ri, pick, LEVELS, MAX_LEVEL, levelName, genQuestion } from "./math/questions.js";
+// Optional post-processing (bloom). Bundled with the web build; guarded off in
+// the headless harness (see setupPostFX below). `three` is external in the core
+// build so these share the injected THREE instance at runtime.
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 /* ============================================================
    MATHONAUT — math space runner
@@ -570,6 +581,12 @@ export function createGame(root, T3) {
   let curDPR = Math.min(window.devicePixelRatio || 1, 2);
   let dprCap = curDPR;              // lowered automatically if the device struggles
   renderer.setPixelRatio(curDPR);
+  // Filmic tone-mapping: richer contrast, glows roll off instead of clipping to
+  // flat white. Exposure nudged up so the vibrant palette stays vibrant.
+  try {
+    if (T3.ACESFilmicToneMapping != null) renderer.toneMapping = T3.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.22;
+  } catch (e) { /* fake renderer in tests: ignore */ }
 
   // WebGL contexts get dropped under memory pressure on mobile. Without this the
   // canvas silently dies and the host remounts us — which reads as "it crashed
@@ -589,15 +606,43 @@ export function createGame(root, T3) {
   const camera = new T3.PerspectiveCamera(62, 1, 0.1, 400);
   const BASE_FOV = 62;
 
+  // ---------- post-processing (bloom) ----------
+  // Only wired up on a real WebGL renderer. The headless harness's fake renderer
+  // has no setRenderTarget, so composer stays null and we render directly —
+  // tests are untouched. bloomOn is the first thing the adaptive quality sheds.
+  let composer = null, bloomPass = null, bloomOn = false;
+  function setupPostFX() {
+    if (typeof renderer.setRenderTarget !== "function" || !renderer.capabilities) return;
+    try {
+      const size = new T3.Vector2();
+      renderer.getSize(size);
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      // (resolution, strength, radius, threshold): only genuinely bright things
+      // (signs, beacons, the sun, engine wash) bloom — not the whole scene.
+      bloomPass = new UnrealBloomPass(size, 0.7, 0.55, 0.8);
+      composer.addPass(bloomPass);
+      composer.addPass(new OutputPass());
+      composer.setPixelRatio(curDPR);
+      bloomOn = true;
+    } catch (e) { composer = null; bloomPass = null; bloomOn = false; }
+  }
+  function draw() {
+    if (composer && bloomOn) composer.render();
+    else renderer.render(scene, camera);
+  }
+
   function resize() {
     const w = root.clientWidth || window.innerWidth || 800;
     const h = root.clientHeight || window.innerHeight || 600;
     renderer.setSize(w, h, false);
+    if (composer) composer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
   on(window, "resize", resize);
   resize();
+  setupPostFX();
 
   // ---------- sky ----------
   function skyTexture(stops) {
@@ -2875,7 +2920,7 @@ export function createGame(root, T3) {
     if (state === S.CINE) {
       cineCamera();
       shake = Math.max(0, shake - dt * 2.2);
-      renderer.render(scene, camera);
+      draw();
       return;
     }
     const spd = state === S.RUN ? curSpeed : 0;
@@ -2898,7 +2943,7 @@ export function createGame(root, T3) {
     fovKick = Math.max(0, fovKick - dt * 10);
     camera.fov = BASE_FOV + frac * 13 + fovKick * mo + (timeScale < 1 ? -4 : 0);  // no flyby/hit FOV swell under reduced-motion
     camera.updateProjectionMatrix();
-    renderer.render(scene, camera);
+    draw();
   }
 
   let rafId = null;
@@ -2964,11 +3009,15 @@ export function createGame(root, T3) {
     // and degrades smoothly instead of one big blurry jump. Only during flight.
     if (!overlayUp && ++ftCount >= 30) {
       ftCount = 0;
-      if (frameMsAvg > 18 && dprCap > 1.0) {          // > 18ms ≈ under 55fps
-        dprCap = Math.max(1.0, +(dprCap - 0.25).toFixed(2));
-        curDPR = dprCap;
-        renderer.setPixelRatio(curDPR);
-        resize();
+      if (frameMsAvg > 18) {                           // > 18ms ≈ under 55fps
+        if (bloomOn) bloomOn = false;                  // bloom is the priciest — shed it first
+        else if (dprCap > 1.0) {
+          dprCap = Math.max(1.0, +(dprCap - 0.25).toFixed(2));
+          curDPR = dprCap;
+          renderer.setPixelRatio(curDPR);
+          if (composer) composer.setPixelRatio(curDPR);
+          resize();
+        }
       }
     }
   }
@@ -2988,6 +3037,7 @@ export function createGame(root, T3) {
     signCache.clear();
     try { renderer.dispose(); } catch (e) { /* ignore */ }
     stopMusic();
+    try { if (bloomPass) bloomPass.dispose(); if (composer) composer.dispose(); } catch (e) { /* ignore */ }
     if (AC && AC.close) { try { AC.close(); } catch (e) { /* ignore */ } }
   };
 }
