@@ -681,7 +681,10 @@ export function createGame(root, T3) {
   // Flight speed is tied to the maths level: a 4-year-old on level 1 gets a long,
   // calm approach; a 10-year-old on level 13 gets a real rush.
   function speedProfile() {
-    const L = Math.min(MAX_LEVEL, Math.max(1, save.mathLevel));
+    let L = Math.min(MAX_LEVEL, Math.max(1, save.mathLevel));
+    // The comparison rungs (14/15) are a quick snap judgement, not a hard sum —
+    // fly them at a calm, readable pace (~L7/L9) rather than end-of-ladder speed.
+    if (L >= 14) L = 7 + (L - 14) * 2;
     return { base: 13 + L * 1.4, max: 23 + L * 2.7, ramp: 0.03 + L * 0.022 };
   }
   let curSpeed = 0;
@@ -1930,6 +1933,7 @@ export function createGame(root, T3) {
   const LEVEL_EG = [
     "Find 7", "Count the stars", "2 + 3 = ?", "6 + 4 = ?", "5 − 2 = ?", "9 − 4 = ?",
     "6 + 6 = ?", "13 + 6 = ?", "5, 10, 15, ?", "4 × 3 = ?", "7 × 8 = ?", "24 ÷ 6 = ?", "9 × 12 = ?",
+    "7 □ 4  →  >", "12 □ 15  →  <",
   ];
   const levelExample = (l) => LEVEL_EG[Math.min(LEVEL_EG.length, Math.max(1, l)) - 1];
   function setLevel(l) {

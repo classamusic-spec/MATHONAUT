@@ -23,6 +23,7 @@ Ages 4–10. Number recognition through 12× tables.
 | `docs/04-monetization.md` | Freemium subscription vs premium, pricing, what never to do |
 | `docs/05-compliance.md` | COPPA / Kids Category / accessibility. Build blockers, not paperwork. |
 | `docs/06-build-plan.md` | Phased tickets with acceptance criteria |
+| `docs/07-landscapes.md` | Plan for making each region/level look distinct |
 
 ## The prototype
 

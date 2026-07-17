@@ -23,13 +23,20 @@ const A = require("../assert.js");
   const q = H.genQuestion(+H.$("mLvlTxt").textContent);
   A.ok(q.text.includes("×"), "L10 generates a multiplication question (" + q.text + ")");
 
+  A.section("comparison rung is reachable");
+  for (let i = 0; i < 4; i++) H.tap("lvlUp");   // -> level 14, Greater or Less
+  A.eq(H.$("mLvlSkill").textContent, "Greater or Less", "level 14 is the comparison skill");
+  A.ok(/[<>]/.test(H.$("mLvlEg").textContent), "its example shows a comparison symbol (" + H.$("mLvlEg").textContent.trim() + ")");
+  const cq = H.genQuestion(14);
+  A.ok(["<", ">", "="].includes(cq.answer), "L14 answers a comparison symbol (" + cq.answer + ")");
+
   A.section("clamps at the top");
-  for (let i = 0; i < 6; i++) H.tap("lvlUp");
+  for (let i = 0; i < 4; i++) H.tap("lvlUp");
   A.eq(H.$("mLvlTxt").textContent, String(H.MAX_LEVEL), "level clamps at the max (" + H.MAX_LEVEL + ")");
   A.ok(H.$("lvlUp").classList.contains("off"), "the + button disables at the top");
 
   A.section("stepping down and persistence");
-  for (let i = 0; i < 8; i++) H.tap("lvlDown");
+  for (let i = 0; i < H.MAX_LEVEL - 5; i++) H.tap("lvlDown");   // from the top down to level 5
   A.eq(H.$("mLvlTxt").textContent, "5", "stepped down to level 5");
   A.eq(H.$("mLvlSkill").textContent, "Taking Away to 5", "skill is subtraction");
   await H.wait(30);

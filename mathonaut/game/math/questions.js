@@ -20,6 +20,7 @@ export const LEVELS = [
   "Number Spotting", "Counting", "Adding to 5", "Adding to 10",
   "Taking Away to 5", "Taking Away to 10", "Doubles & Tens", "Adding to 20",
   "Skip Counting", "Times 2 to 5", "Times to 9", "Sharing & Missing", "Times to 12",
+  "Greater or Less", "Compare to 20",
 ];
 export const MAX_LEVEL = LEVELS.length;   // 13
 export const levelName = (l) => LEVELS[Math.min(LEVELS.length, Math.max(1, l)) - 1];
@@ -67,9 +68,23 @@ export function genQuestion(level) {
   } else if (L === 12) {                           // division / missing number
     if (Math.random() < 0.5) { const b = ri(2, 6), v = ri(2, 9); text = b * v + " ÷ " + b + " = ?"; ans = v; sub = "SHARE IT OUT"; }
     else { const a = ri(2, 9), v = ri(2, 9); text = a + " × ? = " + a * v; ans = v; sub = "FIND THE MISSING NUMBER"; }
-  } else {                                         // times to 12, mixed
+  } else if (L === 13) {                           // times to 12, mixed
     if (Math.random() < 0.6) { const a = ri(6, 12), b = ri(6, 12); text = a + " × " + b + " = ?"; ans = a * b; sub = "MULTIPLY"; }
     else { const b = ri(3, 9), v = ri(4, 12); text = b * v + " ÷ " + b + " = ?"; ans = v; sub = "SHARE IT OUT"; }
+  } else {                                         // L14/L15: greater / less / equal
+    // The answer is a COMPARISON SYMBOL, not a number — fly through <, > or =.
+    // We short-circuit the numeric decoy machinery below: the three options are
+    // always the three symbols, shuffled, so the correct lane still varies.
+    const hi = L >= 15 ? 20 : 10;
+    const a = ri(1, hi);
+    let b = ri(1, hi);
+    if (Math.random() < 0.28) b = a;               // make "=" a genuine answer ~1/3 of the time
+    const answer = a > b ? ">" : a < b ? "<" : "=";
+    const options = ["<", ">", "="].sort(() => Math.random() - 0.5);
+    return {
+      text: a + "  □  " + b, sub: "BIGGER, SMALLER, OR EQUAL?",
+      answer, options, correctLane: options.indexOf(answer),
+    };
   }
 
   // Distractors must stay in the child's number world — "Find 3" must never
