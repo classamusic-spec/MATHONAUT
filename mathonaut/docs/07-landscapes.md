@@ -33,10 +33,17 @@ Everything below builds on `GALAXIES` — we are not starting from scratch.
 
 ---
 
-## Phase A — Regions mapped to the ladder (cheap, highest impact)
+## Phase A — Regions mapped to the ladder (cheap, highest impact) ✅ DONE
 
 Give each **band of levels** its own region, and add palettes so there are enough
 to go around.
+
+**Shipped:** 8 galaxy palettes (added Frost Belt, Aurora Fields, Deep Fathom,
+Ember Reach). The region now follows the child's math level via a `LEVEL_REGION`
+map (1:1 onto all 8 regions); the mission's rules/boss still rotate per run. So
+climbing the ladder journeys green → gold → ice → aurora → violet → deep blue →
+crimson → ember. Covered by the `galaxy` suite (distinct valid region per band,
+new region still winnable). Below is the original plan for reference.
 
 - Add 3–4 more galaxy palettes (recolour only — same data shape): e.g. **Frost
   Belt** (pale cyan/white), **Ember Reach** (deep red/orange), **Aurora Fields**

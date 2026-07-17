@@ -677,7 +677,31 @@ export function createGame(root, T3) {
       fog: 0x420c1e, stars: [0xffe9ee, 0xffb8c4, 0xd87f94],
       beacon: [0xff6a7f, 0xd0304d], streak: 0xffd4dc,
       nebula: ["#ae2f4d", "#ff6a7f"], planetTint: 0xffb8c4, rim: 0xd84d6a, mix: [0.3, 0.5, 0.2] },
+    { name: "FROST BELT", tag: "#8fe0ff",
+      sky: [[0, "#050a16"], [0.42, "#0d2438"], [0.78, "#1a4d6e"], [1, "#3a86b0"]],
+      fog: 0x123449, stars: [0xffffff, 0xcfeaff, 0x9fd0f0],
+      beacon: [0x8fe0ff, 0x4da8d8], streak: 0xdff2ff,
+      nebula: ["#2f7aae", "#8fe0ff"], planetTint: 0xbfe4f7, rim: 0x6ab8e0, mix: [0.55, 0.3, 0.15] },
+    { name: "AURORA FIELDS", tag: "#5cffb0",
+      sky: [[0, "#0d0616"], [0.42, "#14304a"], [0.78, "#1d6a5c"], [1, "#3ea88a"]],
+      fog: 0x123c3a, stars: [0xeafff6, 0xffd9f0, 0xa8ffd9],
+      beacon: [0x5cffb0, 0xff8ad8], streak: 0xd4ffe6,
+      nebula: ["#2fae6a", "#c48aff"], planetTint: 0xa8ffd9, rim: 0x5cd8a0, mix: [0.5, 0.2, 0.3] },
+    { name: "DEEP FATHOM", tag: "#5c8aff",
+      sky: [[0, "#02030d"], [0.42, "#08123a"], [0.78, "#122a6a"], [1, "#244aa8"]],
+      fog: 0x0a1640, stars: [0xeaf0ff, 0xb8c4ff, 0x7f9fd8],
+      beacon: [0x5c8aff, 0x2f4dae], streak: 0xd4e0ff,
+      nebula: ["#2f4dae", "#5c8aff"], planetTint: 0xb8c8ff, rim: 0x4d6ad8, mix: [0.4, 0.3, 0.3] },
+    { name: "EMBER REACH", tag: "#ff7a3c",
+      sky: [[0, "#140402"], [0.42, "#3a1006"], [0.78, "#6e2810"], [1, "#a8481a"]],
+      fog: 0x3a1408, stars: [0xffe6d0, 0xffb890, 0xd88a5a],
+      beacon: [0xff7a3c, 0xd84d1a], streak: 0xffd0b0,
+      nebula: ["#c43f1f", "#ff8a3c"], planetTint: 0xffb890, rim: 0xd8622f, mix: [0.6, 0.3, 0.1] },
   ];
+  // Each band of the ladder gets its own region, so climbing visibly travels
+  // through space (docs/07-landscapes.md, Phase A). 1:1 onto all 8 galaxies.
+  const LEVEL_REGION = [0, 0, 1, 1, 4, 4, 5, 5, 2, 6, 6, 3, 3, 7, 7];
+  const galaxyForLevel = (l) => LEVEL_REGION[Math.min(MAX_LEVEL, Math.max(1, l)) - 1];
   let galaxy = GALAXIES[0];
   scene.background = skyTexture(galaxy.sky);
   scene.fog = new T3.Fog(galaxy.fog, 85, 200);
@@ -2035,9 +2059,8 @@ export function createGame(root, T3) {
     });
   }
   function openBrief() {
-    const idx = save.missions % MISSIONS.length;
-    mission = MISSIONS[idx];
-    applyGalaxy(idx);
+    mission = MISSIONS[save.missions % MISSIONS.length];   // mission rules/boss still rotate per run
+    applyGalaxy(galaxyForLevel(save.mathLevel));           // region is the child's place on the ladder
     $("brGalaxy").textContent = galaxy.name;
     $("brGalaxy").style.color = galaxy.tag;
     $("brGalaxy").style.borderColor = galaxy.tag;
