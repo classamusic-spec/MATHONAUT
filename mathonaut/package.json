@@ -1,0 +1,16 @@
+{
+  "name": "mathonaut",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A 3-lane space runner where the maths is the steering, never a quiz popup. Ages 4-10.",
+  "scripts": {
+    "build:core": "esbuild game/index.js --bundle --format=cjs --outfile=testing/game.cjs",
+    "pretest": "npm run build:core",
+    "test": "node testing/run.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.0",
+    "jsdom": "^24.0.0",
+    "three": "^0.160.0"
+  }
+}

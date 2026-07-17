@@ -1,0 +1,26 @@
+name: CI
+
+# The headless suite is the gate. It bundles the framework-free core and plays
+# whole missions with a scripted auto-pilot — no browser, no GPU. Every genuine
+# bug in this project was found by simulation, so CI must fail on any regression.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mathonaut
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci || npm install
+      - name: Headless suite
+        run: npm test

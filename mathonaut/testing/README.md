@@ -105,15 +105,53 @@ If a test breaks after a legitimate fix, suspect the test.
 | `cinematic` | Countdown 5→1, correct 7-segment patterns, blast-off, skip |
 | `journey` | Planet approaches with progress; flyby sweeps left; resets between missions |
 
-Examples included: `example-systems-test.js`, `example-ladder-test.js`.
+All eight are implemented in `suites/*.test.js` and gate CI.
 
-## Running the examples
+## Running the suite
 
-These are written against the *prototype* bundled to CJS:
+From `mathonaut/`:
 
 ```bash
-npm i three jsdom esbuild
-npx esbuild Mathonaut.jsx --bundle --format=cjs --external:three \
+npm install      # three, jsdom, esbuild (dev only)
+npm test         # bundles the core to testing/game.cjs, then runs every suite
+```
+
+`npm test` runs each suite in its own child process (isolated globals — one game
+instance never leaks into the next) and exits non-zero if any suite fails. To run
+one suite directly:
+
+```bash
+npm run build:core
+node testing/suites/ladder.test.js
+```
+
+### How the suite is wired
+
+- `harness.js` — the shared setup: jsdom, a fake `WebGLRenderer` that records the
+  scene, a stubbed 2D canvas context, an in-memory `window.storage`, a fake
+  `AudioContext`, and — crucially — **a fake clock**. `performance.now()`,
+  `requestAnimationFrame`, and `setTimeout` are all driven off a manual frame
+  counter, so a 90-second mission (and its 900ms result-overlay reveal) runs in
+  milliseconds and deterministically. `createHarness()` returns the driving
+  handles (`frame`, `settle`, `tap`, `key`, `swipe`, `D`, `wallet`, `scene`, …).
+- `autopilot.js` — the scripted player. `playMission()` reads telemetry each frame
+  and steers: vacate boss beams, fly through the answer, collect *exactly* N in a
+  quantity phase, and spend Overdrive **defensively** (its smash is invulnerable,
+  so it's saved for an unavoidable hit rather than burned the instant it charges).
+  Pass `{ sloppy: n }` to model a struggling child who misses on purpose.
+- `assert.js` — a tiny check/report helper; `run.js` — the runner.
+
+The `math` suite needs no game at all — it imports `genQuestion` straight from the
+bundle (the pure math lives in `game/math/questions.js`).
+
+## The examples
+
+`example-systems-test.js` and `example-ladder-test.js` are the original, inlined
+reference tests kept for provenance. They bundle the **prototype** rather than the
+extracted core:
+
+```bash
+npx esbuild ../prototype/Mathonaut.jsx --bundle --format=cjs --external:three \
   --alias:react=./stub/react.js --outfile=./game.cjs
 node example-ladder-test.js
 ```
