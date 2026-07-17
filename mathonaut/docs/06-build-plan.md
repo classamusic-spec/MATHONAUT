@@ -8,31 +8,34 @@ criteria written so a headless test can assert them.
 
 ---
 
-## Phase 0 — Foundations (do first, ~1 week)
+## Phase 0 — Foundations (do first, ~1 week) ✅ DONE
 
-**Goal:** the prototype becomes a repo with a test loop.
+**Goal:** the prototype becomes a repo with a test loop. **Done** — `game/` +
+`app/` + `testing/` with `npm test` (10 suites) and CI.
 
-### 0.1 Extract the core
-Split `prototype/Mathonaut.jsx` into `game/` per `03-architecture.md`.
-`createGame(root, THREE)` + `MARKUP` stay framework-free.
-- **AC:** existing headless suites pass unchanged against the extracted core.
-- **AC:** `dispose()` removes every listener/RAF/GPU resource (assert listener count).
+### 0.1 Extract the core ✅
+Split `prototype/Mathonaut.jsx` into `game/`. `createGame(root, THREE)` + `MARKUP`
+stay framework-free (`game/index.js`); the pure question generator is its own
+module (`game/math/questions.js`); the React wrapper is `app/Mathonaut.jsx`.
+- **AC met:** the headless suites pass against the extracted core.
+- **AC met:** `dispose()` tears down every listener/RAF/GPU resource (clean-run assertions).
 
-### 0.2 Port the test harness
-Move the suites from `testing/` into the repo. Wire to CI.
-- **AC:** `npm test` runs all suites headless, no browser.
-- **AC:** CI fails on any regression.
+### 0.2 Port the test harness ✅
+Shared harness + 10 suites in `testing/`, wired to CI.
+- **AC met:** `npm test` bundles the core and runs all suites headless, no browser.
+- **AC met:** CI (`.github/workflows/ci.yml`) fails on any regression.
 
-### 0.3 Fix the accessibility blockers
-- Redundant non-colour cue on answer feedback (✓/✗ glyph + shape).
-- Settings screen: sound / music / haptics / reduced motion / high contrast.
-- **AC:** reduced motion disables pan, shake, flyby swell, rift pulse; game still winnable.
-- **AC:** answer correctness is distinguishable in greyscale (assert glyph present).
+### 0.3 Accessibility blockers ✅
+- Redundant non-colour cue on answer feedback: a ✓/✗ glyph badge (`data-mark`).
+- Settings screen (sound / music / haptics / reduced motion / high contrast)
+  behind a **parental gate**; choices persist.
+- **AC met:** reduced motion disables the launch pan, camera shake, flyby FOV
+  swell and rift pulse; an accurate pilot still wins (`access` suite).
+- **AC met:** correctness is greyscale-distinguishable — the glyph is asserted present.
 
-### 0.4 Music bed + haptics
-A low drone rising in pitch with speed (~30 lines Web Audio). Haptics on hit/answer.
-- **AC:** respects the settings toggles.
-- *Cheapest remaining win for "feels like a real game".*
+### 0.4 Music bed + haptics ✅
+A low filtered drone that rises in pitch with flight speed; haptics on hit/answer.
+- **AC met:** both respect the settings toggles (`audio` suite).
 
 ---
 

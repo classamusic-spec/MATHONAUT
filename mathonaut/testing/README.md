@@ -99,7 +99,9 @@ If a test breaks after a legitimate fix, suspect the test.
 | `math` | 52k generated questions: unique options, answer present, no negatives, L1–6 ≤ 20, no zero decoys L1–2 |
 | `ladder` | A simulated learner climbs 1 → 7+ without jamming |
 | `systems` | All 4 mission rules, boss beams, economy, purchases persist |
-| `kid` | L1 experience: answer strip readable, ≥6s thinking time, no guards, lane tracking |
+| `kid` | L1 experience: answer strip readable, ≥6s thinking time, no guards (deterministic counter), lane tracking |
+| `access` | Answer-feedback glyph (greyscale cue), settings behind a parental gate, persistence, reduced-motion behaviour |
+| `audio` | Music bed rises with speed; haptics on hit/answer; both respect the toggles |
 | `perf` | Menu render throttle, texture cache bounded, context-loss recovery |
 | `swipe` | Hidden controls inert; real swipe/tap still steer |
 | `cinematic` | Countdown 5→1, correct 7-segment patterns, blast-off, skip |

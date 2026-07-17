@@ -14,7 +14,7 @@ if (!fs.existsSync(bundle)) {
 }
 
 // Deterministic, meaningful order: math (no game) -> ladder -> systems -> the rest.
-const order = ["math", "ladder", "systems", "kid", "perf", "swipe", "cinematic", "journey"];
+const order = ["math", "ladder", "systems", "kid", "access", "audio", "perf", "swipe", "cinematic", "journey", "dispose"];
 const files = fs.readdirSync(suiteDir).filter((f) => f.endsWith(".test.js"));
 const suites = order
   .map((n) => n + ".test.js")

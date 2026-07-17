@@ -212,6 +212,38 @@ export const MARKUP = `
     letter-spacing:.02em;}
   .sl-kbd{background:rgba(255,255,255,.10);border:1px solid var(--stroke);
     border-radius:5px;padding:2px 7px;font-size:10.5px;}
+
+  /* settings + parental gate */
+  .sl-link{pointer-events:auto;cursor:pointer;margin-top:16px;background:none;border:none;
+    color:rgba(238,244,255,.6);font-size:12.5px;font-weight:700;text-decoration:underline;
+    text-underline-offset:3px;letter-spacing:.02em;}
+  .sl-btn.ghost{background:rgba(255,255,255,.06);box-shadow:none;margin-top:12px;}
+  .sl-card h2{font-size:20px;font-weight:800;margin:0 0 6px;color:var(--txt);text-align:center;}
+  .gate .gate-q{text-align:center;font-size:14px;color:var(--dim);margin:0 0 14px;}
+  .gate .gate-q b{color:var(--txt);font-size:18px;}
+  .gate-opts{display:flex;gap:10px;justify-content:center;margin-bottom:6px;}
+  .gate-opts button{pointer-events:auto;cursor:pointer;min-width:64px;padding:14px 0;border-radius:16px;
+    font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--txt);
+    background:rgba(22,58,124,.55);border:2px solid var(--stroke);}
+  .setrow{display:flex;align-items:center;justify-content:space-between;gap:14px;
+    padding:12px 4px;border-bottom:1px solid rgba(255,255,255,.08);font-size:14px;color:var(--txt);}
+  .tgl{pointer-events:auto;cursor:pointer;width:52px;height:30px;border-radius:999px;position:relative;
+    border:2px solid var(--stroke);background:rgba(255,255,255,.08);transition:background .18s;flex:0 0 auto;}
+  .tgl::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;
+    background:#fff;transition:left .18s;}
+  .tgl.on{background:var(--mint);border-color:var(--mint);}
+  .tgl.on::after{left:24px;}
+
+  /* high contrast: firmer borders, opaque panels, brighter text */
+  .sl-root.hc{--dim:rgba(238,244,255,.9);}
+  .sl-root.hc .ans{border-width:3.5px;background:#020617;color:#fff;text-shadow:none;}
+  .sl-root.hc .sl-card{background:#050a1e;border:2px solid #fff;}
+  .sl-root.hc .setrow{color:#fff;}
+  .sl-root.hc .ans.right{border-color:#78ffcf;}
+  .sl-root.hc .ans.wrongpick{border-color:#ff8aa0;}
+
+  /* reduced motion: no CSS keyframe animation (e.g. the overdrive pulse) */
+  .sl-root.rm *,.sl-root.rm *::before,.sl-root.rm *::after{animation:none !important;}
   .ovtitle{font-size:11px;font-weight:800;letter-spacing:.36em;color:var(--dim);
     text-transform:uppercase;margin-bottom:2px;}
 
@@ -305,6 +337,15 @@ export const MARKUP = `
   .ans.wrongpick{border-color:#ff5c7a;background:rgba(82,10,30,.92);color:#ffe4ea;
     box-shadow:0 0 34px rgba(255,92,122,.85);}
   .ans.dimmed{opacity:.26;transform:scale(.92);}
+  /* Redundant, non-colour cue on answer feedback: a shape/glyph badge that is
+     legible in greyscale for colour-blind players (accessibility, docs/05). */
+  .ans[data-mark]::after{content:attr(data-mark);position:absolute;top:-13px;right:-9px;
+    width:26px;height:26px;line-height:24px;border-radius:50%;font-size:16px;font-weight:900;
+    text-align:center;border:2px solid #06122a;color:#06122a;box-shadow:0 2px 8px rgba(0,4,20,.6);}
+  .ans.right{position:relative;}
+  .ans.wrongpick{position:relative;}
+  .ans.right[data-mark]::after{background:#5cffc4;}
+  .ans.wrongpick[data-mark]::after{background:#ff6a86;}
   #laneDots{position:absolute;left:0;right:0;top:calc(42% + 84px);display:none;
     justify-content:center;gap:min(6vw,30px);pointer-events:none;}
   #laneDots.on{display:flex;}
@@ -403,6 +444,30 @@ export const MARKUP = `
   <button class="sl-btn" id="missionBtn">PLAY</button>
   <div class="sl-hint">Swipe <b>◀ ▶</b> or press <span class="sl-kbd">←</span> <span class="sl-kbd">→</span> to steer<br>
   Fly through the correct answer — the math never stops the flight</div>
+  <button class="sl-link" id="settingsBtn">⚙ Grown-ups &amp; Settings</button>
+</div>
+
+<!-- Parental gate: a grown-up answers a multiplication the target age can't, in
+     front of settings (non-negotiable: gate before every settings screen). -->
+<div class="sl-ov hidden" id="gateOv">
+  <div class="sl-card gate">
+    <h2>Ask a grown-up</h2>
+    <p class="gate-q">Solve to continue: <b id="gateQ">7 × 8</b></p>
+    <div class="gate-opts" id="gateOpts"></div>
+    <button class="sl-btn ghost" id="gateCancel">Back</button>
+  </div>
+</div>
+
+<div class="sl-ov hidden" id="setOv">
+  <div class="sl-card">
+    <h2>Settings</h2>
+    <div class="setrow" data-k="sound"><span>Sound effects</span><button class="tgl" id="tgl-sound" role="switch"></button></div>
+    <div class="setrow" data-k="music"><span>Music</span><button class="tgl" id="tgl-music" role="switch"></button></div>
+    <div class="setrow" data-k="haptics"><span>Vibration</span><button class="tgl" id="tgl-haptics" role="switch"></button></div>
+    <div class="setrow" data-k="reduceMotion"><span>Reduced motion</span><button class="tgl" id="tgl-reduceMotion" role="switch"></button></div>
+    <div class="setrow" data-k="highContrast"><span>High contrast</span><button class="tgl" id="tgl-highContrast" role="switch"></button></div>
+    <button class="sl-btn" id="setDone">Done</button>
+  </div>
 </div>
 
 <div class="sl-ov hidden" id="briefOv">
@@ -1475,6 +1540,7 @@ export function createGame(root, T3) {
     return AC;
   }
   function beep(freq, dur, type, vol, slide) {
+    if (!setting("sound")) return;              // respect the sound-effects toggle
     const ctx = audioCtx(); if (!ctx) return;
     try {
       const o = ctx.createOscillator(), g = ctx.createGain();
@@ -1513,6 +1579,58 @@ export function createGame(root, T3) {
     },
   };
 
+  // ---------- haptics ----------
+  // Short taps on hits and answers; respects the vibration toggle. Guards every
+  // access — navigator.vibrate is absent on iOS Safari and must never throw.
+  function haptic(pattern) {
+    if (!setting("haptics")) return;
+    const nav = (typeof window !== "undefined" && window.navigator) || (typeof navigator !== "undefined" ? navigator : null);
+    try { if (nav && typeof nav.vibrate === "function") nav.vibrate(pattern); } catch (e) { /* decoration */ }
+  }
+
+  // ---------- music bed ----------
+  // A low filtered drone that rises in pitch with flight speed (docs/06 0.4).
+  // Persistent oscillator, started on flight, stopped on menus / when muted.
+  let musicOsc = null, musicGain = null, musicFilter = null;
+  function startMusic() {
+    const ctx = audioCtx();
+    if (!ctx || !setting("music") || musicOsc) return;
+    try {
+      musicOsc = ctx.createOscillator();
+      musicGain = ctx.createGain();
+      musicFilter = ctx.createBiquadFilter();
+      musicOsc.type = "sawtooth";
+      musicOsc.frequency.setValueAtTime(48, ctx.currentTime);
+      musicFilter.type = "lowpass";
+      musicFilter.frequency.setValueAtTime(300, ctx.currentTime);
+      musicGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      musicGain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.8);
+      musicOsc.connect(musicFilter); musicFilter.connect(musicGain); musicGain.connect(ctx.destination);
+      musicOsc.start();
+    } catch (e) { musicOsc = null; musicGain = null; musicFilter = null; }
+  }
+  function stopMusic() {
+    if (!musicOsc) return;
+    try {
+      const ctx = audioCtx();
+      musicGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.2);
+      musicOsc.stop(ctx.currentTime + 0.5);
+    } catch (e) { /* ignore */ }
+    musicOsc = null; musicGain = null; musicFilter = null;
+  }
+  function updateMusic() {
+    const flying = state === S.RUN || state === S.CINE;
+    if (setting("music") && flying) startMusic(); else stopMusic();
+    if (musicOsc) {
+      try {
+        const ctx = audioCtx();
+        const frac = Math.min(1, (curSpeed || 0) / speedProfile().max);
+        musicOsc.frequency.setTargetAtTime(48 + frac * 74, ctx.currentTime, 0.15);       // pitch rises with speed
+        if (musicFilter) musicFilter.frequency.setTargetAtTime(300 + frac * 900, ctx.currentTime, 0.2);
+      } catch (e) { /* ignore */ }
+    }
+  }
+
 // math (genQuestion, LEVELS, levelName, ri, pick) is imported from ./math/questions.js
 
     // Each mission changes a RULE, not just the wallpaper.
@@ -1536,8 +1654,13 @@ export function createGame(root, T3) {
   ];
 
   // ---------- save ----------
+  const DEFAULT_SETTINGS = { sound: true, music: true, haptics: true, reduceMotion: false, highContrast: false };
   const save = { mathLevel: 1, missions: 0, stars: 0, lifetime: 0, colorSel: 0,
-    colorsOwned: [0], shipsOwned: [0], shipSel: 0 };
+    colorsOwned: [0], shipsOwned: [0], shipSel: 0, settings: { ...DEFAULT_SETTINGS } };
+  // Accessibility / audio setting readers (see docs/05-compliance.md).
+  const setting = (k) => (save.settings ? save.settings[k] : DEFAULT_SETTINGS[k]);
+  const reduceMotion = () => !!setting("reduceMotion");
+  const motion = () => (reduceMotion() ? 0 : 1);
   let storageOK = false;
   async function loadSave() {
     try {
@@ -1548,16 +1671,23 @@ export function createGame(root, T3) {
       if (!Array.isArray(save.shipsOwned)) save.shipsOwned = [0];
       if (!save.colorsOwned.includes(save.colorSel)) save.colorSel = 0;
       if (!save.shipsOwned.includes(save.shipSel)) save.shipSel = 0;
+      save.settings = { ...DEFAULT_SETTINGS, ...(save.settings || {}) };  // migrate: unknown/missing settings default
       storageOK = true;
     } catch (e) {
       storageOK = typeof window.storage !== "undefined";
     }
     if (disposed) return;
-    refreshMenu(); applyColor(save.colorSel); applyShip(save.shipSel);
+    refreshMenu(); applyColor(save.colorSel); applyShip(save.shipSel); applySettings();
   }
   async function persist() {
     if (!storageOK) return;
     try { await window.storage.set("mathonaut-save", JSON.stringify(save)); } catch (e) { /* ignore */ }
+  }
+  // Reflect accessibility settings onto the root so CSS can respond (high
+  // contrast; reduced motion also kills CSS keyframe animations).
+  function applySettings() {
+    root.classList.toggle("hc", !!setting("highContrast"));
+    root.classList.toggle("rm", reduceMotion());
   }
 
   // ---------- state ----------
@@ -1676,15 +1806,16 @@ export function createGame(root, T3) {
   function resolveAnswers(correctLane, picked) {
     ansEls.forEach((el, i) => {
       el.classList.remove("sel", "dimmed");
-      if (i === correctLane) el.classList.add("right");
-      else if (i === picked) el.classList.add("wrongpick");
+      el.removeAttribute("data-mark");
+      if (i === correctLane) { el.classList.add("right"); el.setAttribute("data-mark", "✓"); }
+      else if (i === picked) { el.classList.add("wrongpick"); el.setAttribute("data-mark", "✗"); }
       else el.classList.add("dimmed");
     });
   }
   function hideAnswers() {
     $("ansStrip").classList.remove("on");
     $("laneDots").classList.remove("on");
-    ansEls.forEach((el) => (el.className = "ans"));
+    ansEls.forEach((el) => { el.className = "ans"; el.removeAttribute("data-mark"); });
   }
 
   const showQ = (t, s) => {
@@ -1854,7 +1985,9 @@ export function createGame(root, T3) {
     const ctx = audioCtx();
     if (ctx && ctx.state === "suspended") ctx.resume();
 
-    // roll the launch cinematic; retries skip the vista and go straight to countdown
+    // roll the launch cinematic; retries skip the vista and go straight to
+    // countdown. Reduced-motion also skips the sweeping vista pan.
+    if (reduceMotion()) skipPan = true;
     state = S.CINE;
     cineT = skipPan ? CINE.pan : 0;
     lastCount = 0; blasted = false;
@@ -1983,6 +2116,46 @@ export function createGame(root, T3) {
   press("homeBtn1", () => { $("winOv").classList.add("hidden"); $("menuOv").classList.remove("hidden"); state = S.MENU; });
   press("homeBtn2", () => { $("failOv").classList.add("hidden"); $("menuOv").classList.remove("hidden"); state = S.MENU; });
 
+  // ---------- settings + parental gate ----------
+  function buildGate() {
+    const a = ri(6, 9), b = ri(6, 9), ans = a * b;
+    $("gateQ").textContent = a + " × " + b;
+    const opts = new Set([ans]);
+    while (opts.size < 3) { const d = ans + pick([-1, 1, -2, 2, 3, -3, 6, -6]); if (d > 0 && !opts.has(d)) opts.add(d); }
+    const arr = [...opts].sort(() => Math.random() - 0.5);
+    const wrap = $("gateOpts"); wrap.innerHTML = "";
+    arr.forEach((v) => {
+      const btn = document.createElement("button");
+      btn.textContent = v;
+      if (v === ans) btn.setAttribute("data-correct", "1");
+      const act = () => { if (!live(btn)) return; if (v === ans) openSettings(); else { sfx.wrong(); buildGate(); } };
+      let m = false, x = 0;
+      btn.addEventListener("touchstart", (e) => { x = e.touches && e.touches[0] ? e.touches[0].clientX : 0; m = false; }, { passive: true });
+      btn.addEventListener("touchmove", (e) => { const t = e.touches && e.touches[0]; if (t && Math.abs(t.clientX - x) > 12) m = true; }, { passive: true });
+      btn.addEventListener("touchend", (e) => { e.preventDefault(); e.stopPropagation(); if (!m) act(); }, { passive: false });
+      btn.addEventListener("click", act);
+      wrap.appendChild(btn);
+    });
+  }
+  function openGate() { $("menuOv").classList.add("hidden"); $("gateOv").classList.remove("hidden"); buildGate(); }
+  function closeGate() { $("gateOv").classList.add("hidden"); $("menuOv").classList.remove("hidden"); }
+  function openSettings() { $("gateOv").classList.add("hidden"); $("setOv").classList.remove("hidden"); renderToggles(); }
+  function closeSettings() { $("setOv").classList.add("hidden"); $("menuOv").classList.remove("hidden"); }
+  const SETTING_KEYS = ["sound", "music", "haptics", "reduceMotion", "highContrast"];
+  function renderToggles() {
+    SETTING_KEYS.forEach((k) => { const t = $("tgl-" + k); if (t) { t.classList.toggle("on", !!setting(k)); t.setAttribute("aria-checked", setting(k) ? "true" : "false"); } });
+  }
+  function toggleSetting(k) {
+    save.settings[k] = !setting(k);
+    persist(); applySettings(); renderToggles();
+    if (k === "music") updateMusic();
+    if (setting("haptics")) haptic(8);
+  }
+  press("settingsBtn", openGate);
+  press("gateCancel", closeGate);
+  press("setDone", closeSettings);
+  SETTING_KEYS.forEach((k) => press("tgl-" + k, () => toggleSetting(k)));
+
   // ---------- input ----------
   function move(dir) {
     if (state !== S.RUN) return;
@@ -2061,6 +2234,7 @@ export function createGame(root, T3) {
       if (right) toast("Rift pushed back", "#8df0ff");
     }
     answersTotal++;
+    haptic(right ? 12 : [18, 40, 18]);   // a gentle tick for right, a double buzz for wrong
     recent.push(right ? 1 : 0);
     if (recent.length > 4) recent.shift();
     if (right) answersRight++;
@@ -2089,7 +2263,7 @@ export function createGame(root, T3) {
       boom(ship.position, 0.7, 8);
       invuln = 1; shake = 0.5; return;
     }
-    hp--; sfx.hit(); redFlash(0.4); shake = 0.9; combo = 0;
+    hp--; sfx.hit(); haptic(30); redFlash(0.4); shake = 0.9; combo = 0;
     boom(ship.position, 0.9, 10);
     // cargo run: a hit knocks a pod loose — you watch it tumble away
     if (mission && mission.mod === "cargo" && cargo > 0) {
@@ -2290,7 +2464,10 @@ export function createGame(root, T3) {
     if (mission.mod === "rift") {
       riftZ -= dt * (0.5 + save.mathLevel * 0.02);
       const gap = riftZ - PLAYER_Z;
-      $("riftVig").style.opacity = Math.max(0, Math.min(0.95, (14 - gap) / 13));
+      // reduced-motion: a calm, steady vignette instead of the closing-in pulse
+      $("riftVig").style.opacity = reduceMotion()
+        ? (gap < 13 ? 0.3 : 0)
+        : Math.max(0, Math.min(0.95, (14 - gap) / 13));
       if (gap <= 1.6) {
         riftZ = PLAYER_Z + 13;
         riftHits++;
@@ -2606,7 +2783,7 @@ export function createGame(root, T3) {
     const hgt = T3.MathUtils.lerp(31, 2.15, e);  // drops down
     camera.position.set(
       Math.sin(ang) * rad,
-      hgt + (Math.random() - 0.5) * shake * 0.4,
+      hgt + (Math.random() - 0.5) * shake * 0.4 * motion(),
       ship.position.z + Math.cos(ang) * rad
     );
     // look target slides from the deep field (planets) onto the ship's forward view
@@ -2630,9 +2807,10 @@ export function createGame(root, T3) {
     const frac = Math.min(1, spd / speedProfile().max);
     const hum = frac * 0.045; // engine vibration grows with speed
     const followX = ship.position.x * 0.4;
+    const mo = motion();   // 0 under reduced-motion: no camera shake / engine jitter
     camera.position.set(
-      followX + (Math.random() - 0.5) * (shake * 0.5 + hum),
-      2.15 + (Math.random() - 0.5) * (shake * 0.4 + hum),
+      followX + (Math.random() - 0.5) * (shake * 0.5 + hum) * mo,
+      2.15 + (Math.random() - 0.5) * (shake * 0.4 + hum) * mo,
       PLAYER_Z + 5.6 - frac * 0.5 // creeps closer as you speed up
     );
     camera.lookAt(
@@ -2643,7 +2821,7 @@ export function createGame(root, T3) {
     camera.rotation.z += bendCur * 55; // subtle roll into the turn
     shake = Math.max(0, shake - dt * 2.2);
     fovKick = Math.max(0, fovKick - dt * 10);
-    camera.fov = BASE_FOV + frac * 13 + fovKick + (timeScale < 1 ? -4 : 0);
+    camera.fov = BASE_FOV + frac * 13 + fovKick * mo + (timeScale < 1 ? -4 : 0);  // no flyby/hit FOV swell under reduced-motion
     camera.updateProjectionMatrix();
     renderer.render(scene, camera);
   }
@@ -2662,6 +2840,8 @@ export function createGame(root, T3) {
     catch (e) {
       if (!errShown) { errShown = true; notify("Hiccup: " + (e && e.message ? e.message : "unknown")); console.error(e); }
     }
+
+    updateMusic();   // idempotent: starts/stops the drone with flight and tracks speed
 
     // telemetry first — it must not depend on whether we drew this frame
     if ((diagFrame = (diagFrame + 1) % 3) === 0) {
@@ -2732,6 +2912,7 @@ export function createGame(root, T3) {
     signCache.forEach((t) => { try { t.dispose(); } catch (e) {} });
     signCache.clear();
     try { renderer.dispose(); } catch (e) { /* ignore */ }
+    stopMusic();
     if (AC && AC.close) { try { AC.close(); } catch (e) { /* ignore */ } }
   };
 }
