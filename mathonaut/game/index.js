@@ -43,17 +43,20 @@ export const MARKUP = `
     -webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px);
   }
 
-  /* ---------- in-flight question: holographic readout ---------- */
-  #question{position:absolute;top:13.5%;left:50%;transform:translateX(-50%) translateY(6px);
+  /* ---------- in-flight question: compact holographic readout ----------
+     Kept small and pinned to the very top so it never covers the lanes or the
+     incoming hazards — the answers live in the strip below, this is just the
+     prompt. */
+  #question{position:absolute;top:6.2%;left:50%;transform:translateX(-50%) translateY(4px);
     text-align:center;opacity:0;transition:opacity .3s cubic-bezier(.2,.8,.2,1),transform .3s cubic-bezier(.2,.8,.2,1);
-    white-space:nowrap;max-width:94vw;}
+    white-space:nowrap;max-width:94vw;pointer-events:none;}
   #question.show{opacity:1;transform:translateX(-50%) translateY(0);}
-  #qSub{display:block;font-size:11px;font-weight:700;letter-spacing:.32em;
-    color:var(--cyan);text-transform:uppercase;margin-bottom:6px;
-    text-shadow:0 0 12px rgba(92,225,255,.9);}
-  #qText{font-size:clamp(34px,10vw,46px);font-weight:800;letter-spacing:-.01em;color:#fff;
+  #qSub{display:block;font-size:10px;font-weight:700;letter-spacing:.3em;
+    color:var(--cyan);text-transform:uppercase;margin-bottom:3px;
+    text-shadow:0 0 10px rgba(92,225,255,.8);}
+  #qText{font-size:clamp(22px,6vw,30px);font-weight:800;letter-spacing:-.01em;color:#fff;
     font-variant-numeric:tabular-nums;
-    text-shadow:0 0 4px rgba(255,255,255,.5),0 0 22px rgba(92,225,255,.75),0 0 48px rgba(60,140,255,.5);}
+    text-shadow:0 0 4px rgba(255,255,255,.45),0 0 16px rgba(92,225,255,.6);}
 
   /* ---------- top HUD ---------- */
   #topL{position:absolute;top:calc(12px + env(safe-area-inset-top));left:14px;
@@ -316,16 +319,19 @@ export const MARKUP = `
 
   /* answer strip — the 3D signs are only legible for ~1s at flight speed, which is
      hopeless for a 4-year-old. These are locked to lanes and readable from spawn. */
-  #ansStrip{position:absolute;left:0;right:0;top:42%;display:none;
+  #ansStrip{position:absolute;left:0;right:0;top:39%;display:none;
     justify-content:center;gap:min(6vw,30px);pointer-events:none;}
   #ansStrip.on{display:flex;}
-  .ans{min-width:21vw;max-width:104px;padding:12px 4px 13px;border-radius:20px;
-    text-align:center;font-size:clamp(30px,8.4vw,40px);font-weight:800;
+  /* Boxes are deliberately shorter and semi-translucent so you can still see the
+     lanes and incoming hazards behind them — the number stays crisp via a dark
+     outline, so readability (the whole point of the strip) is preserved. */
+  .ans{min-width:20vw;max-width:100px;padding:7px 4px 8px;border-radius:16px;
+    text-align:center;font-size:clamp(28px,8vw,38px);font-weight:800;
     font-variant-numeric:tabular-nums;letter-spacing:-.01em;color:#fff;
-    background:rgba(6,12,38,.78);border:2.5px solid rgba(92,225,255,.55);
-    box-shadow:0 6px 20px rgba(0,4,20,.55), 0 0 18px rgba(92,225,255,.22),
-      inset 0 1px 0 rgba(255,255,255,.18);
-    text-shadow:0 0 14px rgba(92,225,255,.8);
+    background:rgba(6,12,38,.52);border:2.5px solid rgba(92,225,255,.62);
+    box-shadow:0 5px 16px rgba(0,4,20,.4), 0 0 14px rgba(92,225,255,.2),
+      inset 0 1px 0 rgba(255,255,255,.16);
+    text-shadow:0 1px 3px rgba(0,4,16,.95),0 0 12px rgba(92,225,255,.7);
     transition:transform .18s cubic-bezier(.2,.8,.2,1), background .18s,
       border-color .18s, box-shadow .18s, opacity .18s;}
   .ans.sel{transform:scale(1.18) translateY(-6px);border-color:#fff;
@@ -346,7 +352,7 @@ export const MARKUP = `
   .ans.wrongpick{position:relative;}
   .ans.right[data-mark]::after{background:#5cffc4;}
   .ans.wrongpick[data-mark]::after{background:#ff6a86;}
-  #laneDots{position:absolute;left:0;right:0;top:calc(42% + 84px);display:none;
+  #laneDots{position:absolute;left:0;right:0;top:calc(39% + 66px);display:none;
     justify-content:center;gap:min(6vw,30px);pointer-events:none;}
   #laneDots.on{display:flex;}
   .ld{min-width:21vw;max-width:104px;display:flex;justify-content:center;}
@@ -894,6 +900,7 @@ export function createGame(root, T3) {
     return out;
   }
   const dpTmp = new T3.Vector3();
+  const _v1 = new T3.Vector3(), _v2 = new T3.Vector3();   // reused scratch to avoid per-frame GC
   function placeDest(j) { // j 0..1 approach
     const e = j * j * (3 - 2 * j); // smoothstep
     destPlanet.position.lerpVectors(DP_START.pos, DP_NEAR.pos, e);
@@ -1053,7 +1060,7 @@ export function createGame(root, T3) {
   ufoModel.visible = false;
   ship.add(rocketModel, ufoModel);
   ship.position.set(0, 0, PLAYER_Z);
-  ship.scale.setScalar(1.12);
+  ship.scale.setScalar(0.82);
   scene.add(ship);
 
   const flameO = rocketModel.getObjectByName("flameO"),
@@ -1091,7 +1098,7 @@ export function createGame(root, T3) {
       navL.scale.setScalar(0.8 + blink * 0.5);
       navR.scale.setScalar(0.8 + (1 - blink) * 0.5);
       navTip.scale.setScalar(0.8 + (Math.sin(t * 0.004) * 0.5 + 0.5) * 0.5);
-      engineLight.position.copy(ship.position).add(new T3.Vector3(0, 0, 1.8));
+      engineLight.position.copy(ship.position); engineLight.position.z += 1.8;
     } else {
       ufoModel.rotation.y += 0.03 + power * 0.02;       // saucer spin
       const pulse = 0.5 + Math.sin(t * 0.012) * 0.2 + power * 0.25;
@@ -1103,7 +1110,7 @@ export function createGame(root, T3) {
         l.material.opacity = 1;
         l.scale.setScalar(0.7 + (Math.sin(t * 0.01 + i * 0.63) * 0.5 + 0.5) * 0.6);
       }
-      engineLight.position.copy(ship.position).add(new T3.Vector3(0, -0.7, 0));
+      engineLight.position.copy(ship.position); engineLight.position.y -= 0.7;
     }
     engineLight.intensity = 0.6 + power * 0.7 + Math.random() * 0.25;
   }
@@ -1977,7 +1984,7 @@ export function createGame(root, T3) {
     guardsSpawned = 0;
     $("riftVig").style.opacity = 0;
     ship.position.set(0, 0, PLAYER_Z); ship.rotation.set(0, 0, 0);
-    ship.scale.setScalar(1.12); ship.visible = true;
+    ship.scale.setScalar(0.82); ship.visible = true;
     trailBits.forEach((b) => (b.visible = false));
     hideQ(); hideAnswers(); updHUD();
     $("briefOv").classList.add("hidden");
@@ -2157,11 +2164,16 @@ export function createGame(root, T3) {
   SETTING_KEYS.forEach((k) => press("tgl-" + k, () => toggleSetting(k)));
 
   // ---------- input ----------
-  function move(dir) {
+  function moveTo(target) {
     if (state !== S.RUN) return;
-    const nl = Math.min(2, Math.max(0, laneIdx + dir));
-    if (nl !== laneIdx) { laneIdx = nl; sfx.swipe(); if (gate && !gate.answered) syncLane(); }
+    const nl = Math.min(2, Math.max(0, target));
+    if (nl !== laneIdx) { laneIdx = nl; sfx.swipe(); haptic(6); if (gate && !gate.answered) syncLane(); }
   }
+  function move(dir) { moveTo(laneIdx + dir); }
+  const laneAtX = (x) => {                        // which lane a tap at screen-x wants
+    const w = root.clientWidth || window.innerWidth || 390;
+    return Math.min(2, Math.max(0, Math.floor((x / w) * 3)));
+  };
   on(window, "keydown", (e) => {
     if (state === S.CINE) { skipCine(); return; }
     if (e.key === "ArrowLeft" || e.key === "a") move(-1);
@@ -2187,32 +2199,47 @@ export function createGame(root, T3) {
   }, { passive: false });
   on(odBtn, "click", () => { if (!odTapped) fireOverdrive(); });
 
-  let tx = null, ty = null, swiped = false;
+  // Steering: a horizontal drag moves proportionally (a long swipe can cross two
+  // lanes and it tracks your finger continuously); a tap goes straight to the
+  // lane you tapped. Both feel direct — no fixed one-lane-per-flick or
+  // guess-the-half. A drag that never really moves sideways is treated as a tap.
+  const laneStep = () => Math.max(46, (root.clientWidth || window.innerWidth || 390) * 0.18);
+  let tx = null, ty = null, startLane = 1, dragged = false;
   on(root, "touchstart", (e) => {
     if (odTapped) return;
     if (state === S.CINE) { skipCine(); return; }
     const t = e.touches && e.touches[0];
     if (!t) return;
-    tx = t.clientX; ty = t.clientY; swiped = false;
+    tx = t.clientX; ty = t.clientY; startLane = laneIdx; dragged = false;
   }, { passive: true });
   on(root, "touchmove", (e) => {
-    if (tx === null || swiped) return;
+    if (tx === null) return;
     const t = e.touches && e.touches[0];
     if (!t) return;
     const dx = t.clientX - tx, dy = t.clientY - ty;
-    if (Math.abs(dx) > 26 && Math.abs(dx) > Math.abs(dy)) { move(dx > 0 ? 1 : -1); swiped = true; }
+    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+      moveTo(startLane + Math.round(dx / laneStep()));
+      dragged = true;
+    }
   }, { passive: true });
   on(root, "touchend", () => {
-    if (!swiped && !odTapped && tx !== null && state === S.RUN) {
-      move(tx < (root.clientWidth || window.innerWidth) / 2 ? -1 : 1);
-    }
-    tx = null; swiped = false;
+    if (!dragged && !odTapped && tx !== null && state === S.RUN) moveTo(laneAtX(tx));  // tap the lane you want
+    tx = null; dragged = false;
   }, { passive: true });
-  let mx = null;
-  on(root, "mousedown", (e) => { if (state === S.CINE) { skipCine(); return; } mx = e.clientX; });
+  // Mouse (desktop): click a lane to go there, or click-drag to slide across.
+  let mx = null, mStartLane = 1, mDragged = false;
+  on(root, "mousedown", (e) => {
+    if (state === S.CINE) { skipCine(); return; }
+    mx = e.clientX; mStartLane = laneIdx; mDragged = false;
+  });
+  on(root, "mousemove", (e) => {
+    if (mx === null || state !== S.RUN) return;
+    const dx = e.clientX - mx;
+    if (Math.abs(dx) > 12) { moveTo(mStartLane + Math.round(dx / laneStep())); mDragged = true; }
+  });
   on(root, "mouseup", (e) => {
-    if (mx !== null && state === S.RUN) { const dx = e.clientX - mx; if (Math.abs(dx) > 40) move(dx > 0 ? 1 : -1); }
-    mx = null;
+    if (mx !== null && !mDragged && state === S.RUN) moveTo(laneAtX(e.clientX));
+    mx = null; mDragged = false;
   });
 
   // ---------- answers ----------
@@ -2430,7 +2457,7 @@ export function createGame(root, T3) {
 
     const tb = trailBits[(trailIdx = (trailIdx + 1) % trailBits.length)];
     tb.visible = true;
-    tb.position.copy(ship.position).add(new T3.Vector3(0, -0.05, 1.7));
+    tb.position.copy(ship.position); tb.position.y -= 0.05; tb.position.z += 1.7;
     tb.material.opacity = 0.5;
     tb.scale.set(1, 1, 1);
     trailBits.forEach((b) => {
@@ -2762,10 +2789,11 @@ export function createGame(root, T3) {
     if (laserT > 0) {
       laserT -= dt;
       laser.visible = true;
-      const from = ship.position.clone().add(new T3.Vector3(0, 0.1, -1));
-      const to = boss ? boss.position.clone() : new T3.Vector3(0, 3, -46);
-      laser.position.copy(from.clone().add(to).multiplyScalar(0.5));
-      laser.scale.set(1, from.distanceTo(to), 1);
+      const from = _v1.copy(ship.position); from.y += 0.1; from.z -= 1;
+      const to = boss ? _v2.copy(boss.position) : _v2.set(0, 3, -46);
+      const dist = from.distanceTo(to);
+      laser.position.copy(from).add(to).multiplyScalar(0.5);
+      laser.scale.set(1, dist, 1);
       laser.lookAt(to);
       laser.rotateX(Math.PI / 2);
       laser.material.opacity = laserT / 0.35;
@@ -2828,13 +2856,17 @@ export function createGame(root, T3) {
 
   let rafId = null;
   let uiFrame = 0, diagFrame = 0;
-  let ftAcc = 0, ftCount = 0;
+  let ftCount = 0, frameMsAvg = 16.7;   // smoothed real frame time (ms) for adaptive quality
   let errShown = false;
 
   function tick() {
     if (disposed) return;
     rafId = requestAnimationFrame(tick);
     const dt = Math.min(clock.getDelta(), 0.05);
+    // Smoothed real frame time. Vsync caps this near 16.7ms (60fps) on a device
+    // that's keeping up; it only rises when the device genuinely can't. An EMA
+    // rides out one-off spikes (a GC pause, a tab returning from background).
+    frameMsAvg += (dt * 1000 - frameMsAvg) * 0.08;
 
     try { update(dt); }
     catch (e) {
@@ -2875,25 +2907,21 @@ export function createGame(root, T3) {
     if (contextLost) return;
     if (overlayUp && (uiFrame = (uiFrame + 1) % 4) !== 0) return;
 
-    const t0 = (performance.now && performance.now()) || 0;
     try { render(dt); }
     catch (e) {
       if (!errShown) { errShown = true; notify("Render issue: " + (e && e.message ? e.message : "unknown")); console.error(e); }
     }
 
-    // adaptive quality: if the device can't hold frame budget, shed pixels (never upscale back,
-    // to avoid oscillating). Only measured during actual flight.
-    if (!overlayUp && t0) {
-      ftAcc += (performance.now() - t0); ftCount++;
-      if (ftCount >= 90) {
-        const avg = ftAcc / ftCount;
-        ftAcc = 0; ftCount = 0;
-        if (avg > 12 && dprCap > 1.0) {
-          dprCap = Math.max(1.0, dprCap - 0.5);
-          curDPR = dprCap;
-          renderer.setPixelRatio(curDPR);
-          resize();
-        }
+    // Adaptive quality: if the device can't hold ~55fps, shed pixel ratio in
+    // gentle steps (never upscale back, to avoid oscillating). Reacts in ~0.5s
+    // and degrades smoothly instead of one big blurry jump. Only during flight.
+    if (!overlayUp && ++ftCount >= 30) {
+      ftCount = 0;
+      if (frameMsAvg > 18 && dprCap > 1.0) {          // > 18ms ≈ under 55fps
+        dprCap = Math.max(1.0, +(dprCap - 0.25).toFixed(2));
+        curDPR = dprCap;
+        renderer.setPixelRatio(curDPR);
+        resize();
       }
     }
   }

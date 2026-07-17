@@ -135,6 +135,18 @@ function createHarness(opts = {}) {
     root.dispatchEvent(end);
     settle();
   };
+  // A stationary tap at an absolute screen-x on the play field (no drag) — used
+  // to exercise tap-the-lane-you-want steering.
+  const tapAt = (x) => {
+    const start = new window.Event("touchstart", { cancelable: true, bubbles: true });
+    start.touches = [{ clientX: x, clientY: 500 }];
+    root.dispatchEvent(start);
+    const end = new window.Event("touchend", { cancelable: true, bubbles: true });
+    end.changedTouches = [{ clientX: x, clientY: 500 }];
+    end.touches = [];
+    root.dispatchEvent(end);
+    settle();
+  };
 
   // Advance the frame clock by `ms` (firing any setTimeout callbacks that come
   // due — win/fail overlay reveals, latch resets), then yield once to the real
@@ -153,7 +165,7 @@ function createHarness(opts = {}) {
   };
 
   return {
-    window, root, $, frame, settle, tap, tapRaw, key, steerTo, swipe,
+    window, root, $, frame, settle, tap, tapRaw, key, steerTo, swipe, tapAt,
     D, wallet, scene, store, errors, dispose: disposeAll, now, wait, boot,
     THREE, genQuestion, LEVELS, MAX_LEVEL, levelName,
     vibes,

@@ -38,10 +38,26 @@ const A = require("../assert.js");
   H.settle(12);
   A.ok(H.D().lane !== lane0, "arrow key steers (" + lane0 + " -> " + H.D().lane + ")");
 
-  // a short tap-like swipe (< 12px) that reads as a lane nudge
+  // a real swipe steers proportionally
   const lane1 = H.D().lane;
   H.swipe(lane1 === 2 ? -90 : 90);
   A.ok(H.D().lane !== lane1, "a real swipe steers (" + lane1 + " -> " + H.D().lane + ")");
+
+  A.section("tap the lane you want");
+  const w = H.root.clientWidth;
+  H.tapAt(w * 0.5);   // centre first so the next taps are unambiguous moves
+  H.tapAt(w * 0.08);  // far left
+  A.eq(H.D().lane, 0, "tapping the left third goes to lane 0");
+  H.tapAt(w * 0.92);  // far right
+  A.eq(H.D().lane, 2, "tapping the right third goes to lane 2");
+  H.tapAt(w * 0.5);   // middle
+  A.eq(H.D().lane, 1, "tapping the middle goes to lane 1");
+
+  A.section("a long swipe can cross two lanes");
+  H.tapAt(w * 0.08);            // start at lane 0
+  A.eq(H.D().lane, 0, "reset to lane 0");
+  H.swipe(w * 0.6);            // a big rightward drag
+  A.eq(H.D().lane, 2, "a long right swipe crosses from lane 0 to lane 2");
 
   A.section("clean run");
   A.eq(H.errors.length, 0, "no runtime errors");

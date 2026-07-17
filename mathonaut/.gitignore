@@ -8,6 +8,7 @@ testing/game.cjs
 # regenerable intermediates
 web/artifact.html
 web/screenshot-run.png
+web/shot-*.png
 
 # misc
 *.log
