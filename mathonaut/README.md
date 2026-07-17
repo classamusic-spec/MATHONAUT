@@ -40,6 +40,23 @@ file, fully playable. It contains:
 - Launch cinematic with a real 7-segment countdown; destination planet approach + flyby
 - Mobile perf guards: render throttling, texture caching, WebGL context-loss recovery
 
+## Play it
+
+`web/index.html` is a **single, self-contained file** (three.js + the game core
+inlined — no server, no CDN). Open it in any WebGL browser and play. Rebuild it
+after changing the core with:
+
+```bash
+npm run build:web      # -> web/index.html
+```
+
+## Run the tests
+
+```bash
+npm install
+npm test               # bundles the core, runs 11 headless suites (no browser)
+```
+
 ## The one rule
 
 > **The maths must control the gameplay, not pause it.**
