@@ -858,9 +858,10 @@ export function createGame(root, T3) {
     return pts;
   }
   const starPoints = [
-    makeStars(240, 0.42, 0xffffff, 60, 130, 0.55),   // near — visibly rushing
-    makeStars(340, 0.26, 0xdfeaff, 130, 260, 0.22),  // mid
-    makeStars(460, 0.16, 0xaac8ff, 260, 460, 0.07),  // far — barely creeps
+    makeStars(300, 0.42, 0xffffff, 60, 130, 0.55),   // near — visibly rushing
+    makeStars(440, 0.26, 0xdfeaff, 130, 260, 0.22),  // mid
+    makeStars(600, 0.16, 0xaac8ff, 260, 460, 0.07),  // far — barely creeps
+    makeStars(520, 0.1, 0x8aa6e0, 360, 640, 0.03),   // dust — deep parallax haze for scale
   ];
   function updateStars(dt, speed) {
     starLayers.forEach((L) => {
@@ -1103,6 +1104,38 @@ export function createGame(root, T3) {
     fO.rotation.x = Math.PI / 2; fO.position.z = 1.95; fO.name = "flameO"; s.add(fO);
     const fI = new T3.Mesh(new T3.ConeGeometry(0.16, 0.7, 10), new T3.MeshBasicMaterial({ color: 0xffe066 }));
     fI.rotation.x = Math.PI / 2; fI.position.z = 1.8; fI.name = "flameI"; s.add(fI);
+
+    // ---- detail pass (authored density: panel lines, engine core, rivets) ----
+    // Panel-line seams: thin dark rings that hug the hull and break it into
+    // read-able sections (torus rings, so they sit ON the surface, not through it).
+    [[-0.15, 0.6], [0.66, 0.5]].forEach(([z, r]) => {
+      const seam = new T3.Mesh(new T3.TorusGeometry(r, 0.016, 6, 24), dark);
+      seam.rotation.x = Math.PI / 2; seam.position.z = z; s.add(seam);
+    });
+    // Emissive engine core — a hot disc deep in the nozzle. Bright enough to bloom.
+    const core = new T3.Mesh(new T3.CircleGeometry(0.27, 20),
+      new T3.MeshBasicMaterial({ color: 0xffd27a }));
+    core.position.z = 1.34; core.rotation.y = Math.PI; core.name = "engCore"; s.add(core);
+    // Cockpit trim: a bright rim around the porthole reads as polished glass under bloom.
+    const glassRim = new T3.Mesh(new T3.TorusGeometry(0.235, 0.022, 8, 24),
+      new T3.MeshBasicMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.9,
+        blending: T3.AdditiveBlending, depthWrite: false }));
+    glassRim.position.set(0, 0.5, 0.12); glassRim.rotation.x = -0.5; s.add(glassRim);
+    // Rivets: small dark bolts around the accent band imply scale and construction.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const bolt = new T3.Mesh(new T3.SphereGeometry(0.028, 6, 6), dark);
+      bolt.position.set(Math.cos(a) * 0.6, Math.sin(a) * 0.6, 0.45); s.add(bolt);
+    }
+    // Side thruster pods — extra silhouette and function on the flanks.
+    [-1, 1].forEach((sx) => {
+      const pod = new T3.Mesh(new T3.CapsuleGeometry(0.11, 0.42, 4, 8), toon(0xd7deee));
+      pod.rotation.x = Math.PI / 2; pod.position.set(sx * 0.66, -0.16, 0.62); s.add(pod);
+      const podRim = new T3.Mesh(new T3.TorusGeometry(0.11, 0.03, 6, 12),
+        new T3.MeshBasicMaterial({ color: 0x8fd4ff, transparent: true, opacity: 0.7,
+          blending: T3.AdditiveBlending, depthWrite: false }));
+      podRim.rotation.x = Math.PI / 2; podRim.position.set(sx * 0.66, -0.16, 0.86); s.add(podRim);
+    });
     return s;
   }
 
