@@ -194,6 +194,21 @@ export const MARKUP = `
     font-size:13px;font-weight:700;color:var(--dim);padding:5px 0;}
   .row b{color:#fff;font-weight:800;}
   .div{height:1px;background:var(--stroke);margin:9px 0;}
+  /* level / skill picker: choose which maths to practise (addition, times, …) */
+  .lvlrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:3px 0;}
+  .lvlhd{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .lvlhd span{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
+  .lvlhd b{font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lvlstep{display:flex;align-items:center;gap:10px;pointer-events:auto;flex:0 0 auto;}
+  .lvlstep>b{min-width:22px;text-align:center;font-size:17px;font-weight:800;color:#fff;
+    font-variant-numeric:tabular-nums;}
+  .lvlbtn{width:34px;height:34px;border-radius:12px;cursor:pointer;font-size:22px;font-weight:800;
+    line-height:1;color:#fff;background:rgba(92,225,255,.14);border:1.5px solid rgba(92,225,255,.4);
+    display:flex;align-items:center;justify-content:center;transition:transform .12s,background .18s;}
+  .lvlbtn:active{transform:scale(.9);background:rgba(92,225,255,.28);}
+  .lvlbtn.off{opacity:.32;pointer-events:none;}
+  .lvleg{font-size:12px;color:var(--cyan);margin:2px 0 2px;font-variant-numeric:tabular-nums;
+    text-align:left;letter-spacing:.01em;}
   .sl-chip{display:inline-block;border-radius:999px;padding:6px 13px;font-size:11px;
     font-weight:800;letter-spacing:.1em;margin:4px 3px 0;color:var(--cyan);
     background:rgba(92,225,255,.10);border:1px solid rgba(92,225,255,.32);}
@@ -440,7 +455,15 @@ export const MARKUP = `
     <div id="wallet"><span id="totStars">0</span><span class="st">★</span></div>
     <div class="row"><span>Pilot</span><b id="rankTxt">Cadet</b></div>
     <div class="div"></div>
-    <div class="row"><span>Math level</span><b id="mLvlTxt">1</b></div>
+    <div class="lvlrow">
+      <div class="lvlhd"><span>Practice</span><b id="mLvlSkill">Number Spotting</b></div>
+      <div class="lvlstep">
+        <button class="lvlbtn" id="lvlDown" aria-label="Easier skill">−</button>
+        <b id="mLvlTxt">1</b>
+        <button class="lvlbtn" id="lvlUp" aria-label="Harder skill">+</button>
+      </div>
+    </div>
+    <div class="lvleg" id="mLvlEg">e.g. Find 7</div>
     <div class="shipsel" id="shipSel">
       <button class="shipbtn sel" data-s="0"><em>🚀</em>ROCKET<small>longer overdrive</small></button>
       <button class="shipbtn" data-s="1"><em>🛸</em>UFO<small>star magnet</small></button>
@@ -1902,8 +1925,26 @@ export function createGame(root, T3) {
     toast("Unlocked " + list[i].name, "#ffd166");
     return true;
   }
+  // A representative example for each rung, so the picker shows what the skill
+  // actually is (addition, subtraction, times tables, …) at a glance.
+  const LEVEL_EG = [
+    "Find 7", "Count the stars", "2 + 3 = ?", "6 + 4 = ?", "5 − 2 = ?", "9 − 4 = ?",
+    "6 + 6 = ?", "13 + 6 = ?", "5, 10, 15, ?", "4 × 3 = ?", "7 × 8 = ?", "24 ÷ 6 = ?", "9 × 12 = ?",
+  ];
+  const levelExample = (l) => LEVEL_EG[Math.min(LEVEL_EG.length, Math.max(1, l)) - 1];
+  function setLevel(l) {
+    const nl = Math.min(MAX_LEVEL, Math.max(1, l));
+    if (nl === save.mathLevel) return;
+    save.mathLevel = nl;
+    sfx.swipe(); haptic(6);
+    persist(); refreshMenu();
+  }
   function refreshMenu() {
-    $("mLvlTxt").textContent = save.mathLevel + " · " + levelName(save.mathLevel);
+    $("mLvlTxt").textContent = save.mathLevel;
+    if ($("mLvlSkill")) $("mLvlSkill").textContent = levelName(save.mathLevel);
+    if ($("mLvlEg")) $("mLvlEg").textContent = "e.g.  " + levelExample(save.mathLevel);
+    if ($("lvlDown")) $("lvlDown").classList.toggle("off", save.mathLevel <= 1);
+    if ($("lvlUp")) $("lvlUp").classList.toggle("off", save.mathLevel >= MAX_LEVEL);
     $("totStars").textContent = save.stars;
     const ranks = ["Cadet", "Pilot", "Ace", "Commander", "Captain", "Star Legend"];
     $("rankTxt").textContent = ranks[Math.min(ranks.length - 1, Math.floor(save.missions / 2))];
@@ -2158,6 +2199,8 @@ export function createGame(root, T3) {
     if (k === "music") updateMusic();
     if (setting("haptics")) haptic(8);
   }
+  press("lvlDown", () => setLevel(save.mathLevel - 1));
+  press("lvlUp", () => setLevel(save.mathLevel + 1));
   press("settingsBtn", openGate);
   press("gateCancel", closeGate);
   press("setDone", closeSettings);
