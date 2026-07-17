@@ -1,17 +1,17 @@
 {
-  "name": "threejs-game-skills",
+  "name": "mathonaut",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "description": "A 3-lane space runner where the maths is the steering, never a quiz popup. Ages 4-10.",
   "scripts": {
-    "check:scripts": "bash -n install.sh scripts/validate-skills.sh skills/threejs-game-director/scripts/probe_asset_credentials.sh && node --check skills/threejs-qa-release/scripts/inspect-threejs-canvas.mjs && python3 scripts/check-python-syntax.py scripts/check-python-syntax.py skills/threejs-gameplay-systems/scripts/create_threejs_game.py skills/threejs-3d-generator/scripts/threejs_3d_asset.py skills/threejs-image-generator/scripts/generate_image.py skills/threejs-audio-generator/scripts/threejs_audio_asset.py skills/threejs-game-director/scripts/audit_reference_report.py",
-    "validate:skills": "scripts/validate-skills.sh skills",
-    "install:codex": "./install.sh --codex",
-    "install:claude": "./install.sh --claude",
-    "install:all": "./install.sh --all"
+    "build:core": "esbuild game/index.js --bundle --format=cjs --external:three --outfile=testing/game.cjs",
+    "build:web": "node web/build.js",
+    "pretest": "npm run build:core",
+    "test": "node testing/run.js"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "pngjs": "^7.0.0"
+    "esbuild": "^0.21.0",
+    "jsdom": "^24.0.0",
+    "three": "^0.160.0"
   }
 }
