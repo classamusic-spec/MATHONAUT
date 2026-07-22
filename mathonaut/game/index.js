@@ -1002,22 +1002,153 @@ export function createGame(root, T3) {
     destPlanet.position.lerpVectors(DP_START.pos, DP_NEAR.pos, e);
     destPlanet.scale.setScalar(T3.MathUtils.lerp(DP_START.scale, DP_NEAR.scale, e));
   }
-  // a small ringed companion, very distant
-  addPlanet(buildPlanet(6, "#e07fa4", "#c95584", "stripes", "#ffe0ec", null), -48, 26, -240, -0.03);
-  // red dwarf sun (both reference shots have one)
-  {
-    const sun = new T3.Group();
-    sun.add(new T3.Mesh(new T3.SphereGeometry(2.6, 20, 14),
-      new T3.MeshBasicMaterial({ color: 0xff4a3c, fog: false })));
-    const halo = new T3.Mesh(new T3.SphereGeometry(4.4, 20, 14),
-      new T3.MeshBasicMaterial({ color: 0xff5c3c, transparent: true, opacity: 0.22, blending: T3.AdditiveBlending, depthWrite: false, fog: false }));
-    sun.add(halo);
-    const halo2 = new T3.Mesh(new T3.SphereGeometry(7, 16, 12),
-      new T3.MeshBasicMaterial({ color: 0xff7050, transparent: true, opacity: 0.08, blending: T3.AdditiveBlending, depthWrite: false, fog: false }));
-    sun.add(halo2);
-    addPlanet(sun, -18, 40, -245, 0);
+  // ============================================================
+  //  Per-region background set-pieces — every stage a distinct sky.
+  //  The destination planet you fly toward is restyled per region (a ringed
+  //  Saturn in the Frost Belt, a striped gas giant in Amber, …), and each
+  //  region adds a signature backdrop: a giant sun with distant worlds, a
+  //  drifting asteroid belt, aurora curtains, twin moons. Only the active
+  //  region's backdrop is in the scene; animated ones respect reduced motion.
+  // ============================================================
+  function disposeGroup(g) {
+    g.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+    });
   }
-  // (no planet underneath — open space reads faster and keeps the frame clean)
+  // --- backdrop toolkit ---
+  function bgSun(r, coreColor, haloColor) {
+    const g = new T3.Group();
+    g.add(new T3.Mesh(new T3.SphereGeometry(r, 22, 16), new T3.MeshBasicMaterial({ color: coreColor, fog: false })));
+    g.add(new T3.Mesh(new T3.SphereGeometry(r * 1.7, 20, 14), new T3.MeshBasicMaterial({
+      color: haloColor, transparent: true, opacity: 0.3, blending: T3.AdditiveBlending, depthWrite: false, fog: false })));
+    g.add(new T3.Mesh(new T3.SphereGeometry(r * 2.9, 16, 12), new T3.MeshBasicMaterial({
+      color: haloColor, transparent: true, opacity: 0.1, blending: T3.AdditiveBlending, depthWrite: false, fog: false })));
+    g.userData.sun = true;
+    return g;
+  }
+  const beltGeo = new T3.IcosahedronGeometry(1, 0);
+  function bgBelt(color) {
+    const N = 48, mesh = new T3.InstancedMesh(beltGeo, toon(color), N);
+    const dummy = new T3.Object3D(), bases = [];
+    for (let i = 0; i < N; i++) {
+      const base = { x: -150 + Math.random() * 300, y: -8 + (Math.random() - 0.5) * 14,
+        z: (Math.random() - 0.5) * 22, s: 0.5 + Math.random() * 2.6, rx: Math.random() * 6, ry: Math.random() * 6 };
+      bases.push(base);
+      dummy.position.set(base.x, base.y, base.z); dummy.scale.setScalar(base.s);
+      dummy.rotation.set(base.rx, base.ry, 0); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true; mesh.frustumCulled = false;
+    mesh.userData.belt = { bases, dummy, off: 0 };
+    return mesh;
+  }
+  function tickBelt(mesh, dt, slow) {
+    const b = mesh.userData.belt;
+    b.off = (b.off + dt * (slow ? 1.4 : 4.2)) % 300;   // drifts across the deep distance
+    for (let i = 0; i < b.bases.length; i++) {
+      const base = b.bases[i];
+      let x = base.x + b.off; if (x > 150) x -= 300;
+      b.dummy.position.set(x, base.y, base.z); b.dummy.scale.setScalar(base.s);
+      b.dummy.rotation.set(base.rx + b.off * 0.02, base.ry + b.off * 0.03, 0);
+      b.dummy.updateMatrix(); mesh.setMatrixAt(i, b.dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+  function auroraTex(a, b) {
+    const cv = document.createElement("canvas"); cv.width = 8; cv.height = 128;
+    const g = cv.getContext("2d");
+    const grd = g.createLinearGradient(0, 128, 0, 0);
+    grd.addColorStop(0, a); grd.addColorStop(0.5, b); grd.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grd; g.fillRect(0, 0, 8, 128);
+    return new T3.CanvasTexture(cv);
+  }
+  function bgAurora(a, b) {
+    const g = new T3.Group();
+    for (let i = 0; i < 4; i++) {
+      const m = new T3.Mesh(new T3.PlaneGeometry(46, 44), new T3.MeshBasicMaterial({
+        map: auroraTex(a, b), transparent: true, opacity: 0.4, blending: T3.AdditiveBlending,
+        depthWrite: false, fog: false, side: T3.DoubleSide }));
+      m.position.set(-44 + i * 28, 24, -6 - i * 3); m.rotation.z = (i - 1.5) * 0.14; m.userData.ph = i * 1.3;
+      g.add(m);
+    }
+    g.userData.aurora = { t: 0 };
+    return g;
+  }
+  function tickAurora(g, dt, still) {
+    g.userData.aurora.t += dt; const t = g.userData.aurora.t;
+    g.children.forEach((m) => {
+      m.material.opacity = still ? 0.38 : 0.26 + (Math.sin(t * 1.3 + m.userData.ph) * 0.5 + 0.5) * 0.34;
+      m.scale.x = still ? 1 : 1 + Math.sin(t * 0.7 + m.userData.ph) * 0.08;
+    });
+  }
+  const moon = (r, base, accent, atmo) => buildPlanet(r, base, accent, "craters", null, atmo);
+  const far = (g, x, y, z) => { g.position.set(x, y, z); return g; };
+
+  // Each region's signature far scenery. Only the active one is visible.
+  const backdrops = [];
+  function buildBackdrops() {
+    const B = (kids, tick) => { const g = new T3.Group(); kids.forEach((c) => g.add(c)); g.visible = false; g.userData.backdrop = true; scene.add(g); return { group: g, tick }; };
+    // 0 Verdant Nebula — calm twin moons
+    backdrops[0] = B([far(moon(5, "#2f8a6a", "#8fffd0", 0x8fffd0), -40, 24, -200),
+                      far(moon(3, "#256a52", "#5cffc4", 0x5cffc4), -26, 10, -160)]);
+    // 1 Amber Drift — a warm sun and a golden world
+    backdrops[1] = B([far(bgSun(4, 0xffe0a0, 0xffb04a), -30, 34, -235),
+                      far(moon(7, "#c4671f", "#ffcf5c", 0xffcf5c), 44, 12, -225)]);
+    // 2 Violet Expanse — a ringed violet world and a moon
+    backdrops[2] = B([far(buildPlanet(11, "#5c22a8", "#d9b8ff", "stripes", "#e6d4ff", 0xc48aff), -44, 26, -235),
+                      far(moon(3, "#7f4dd0", "#d9b8ff", 0xd9b8ff), 28, 12, -170)]);
+    // 3 Crimson Void — a GIANT red sun and distant planets
+    backdrops[3] = B([far(bgSun(10, 0xff5a3c, 0xff2a1a), -28, 30, -252),
+                      far(moon(4, "#8a1a3a", "#ff6a7f", 0xff6a7f), 46, 20, -230),
+                      far(moon(2.4, "#5c102a", "#d0304d", 0xd0304d), 22, -8, -180),
+                      far(moon(2, "#340a1a", "#ff6a7f", null), -46, -8, -190)]);
+    // 4 Frost Belt — an icy moon and a pale far sun (Saturn IS the destination)
+    backdrops[4] = B([far(moon(3.4, "#3a86b0", "#eafcff", 0x8fe0ff), 44, 24, -200),
+                      far(bgSun(2.6, 0xeafcff, 0x8fe0ff), -40, 34, -252)]);
+    // 5 Aurora Fields — shimmering curtains and distant worlds
+    const aur = far(bgAurora("rgba(92,255,176,0.95)", "rgba(196,138,255,0.7)"), 4, 4, -120);
+    backdrops[5] = B([aur,
+                      far(moon(5, "#2a8a5c", "#a8ffd9", 0xa8ffd9), -44, 28, -230),
+                      far(moon(3, "#4ba88a", "#5cffb0", 0x5cffb0), 42, 16, -210)], (dt, still) => tickAurora(aur, dt, still));
+    // 6 Deep Fathom — a bright far sun, a huge dark planet, small far worlds
+    backdrops[6] = B([far(bgSun(5, 0xdfeaff, 0x5c8aff), 36, 34, -255),
+                      far(moon(17, "#0a1640", "#244aa8", 0x5c8aff), -46, 4, -238),
+                      far(moon(3, "#122a6a", "#b8c8ff", 0xb8c8ff), 16, -6, -180)]);
+    // 7 Ember Reach — a volcanic sun and a DRIFTING ASTEROID BELT
+    const belt = far(bgBelt(0x6e3a24), 0, -2, -150);
+    backdrops[7] = B([far(bgSun(6, 0xff8a3c, 0xff4d1a), -34, 32, -245),
+                      belt,
+                      far(moon(4, "#a8481a", "#ffb890", 0xffb890), 44, 22, -232)], (dt, slow) => tickBelt(belt, dt, slow));
+  }
+  buildBackdrops();
+  let activeBackdrop = null;
+
+  // The destination planet, restyled per region — the signature world you fly to.
+  const DEST_STYLE = [
+    { base: "#1d8a6a", accent: "#8fffd0", style: "stripes", ring: null,      atmo: 0x8fffd0, size: 1.0 },  // Verdant
+    { base: "#9a5c1a", accent: "#ffd9a0", style: "stripes", ring: null,      atmo: 0xffd9a8, size: 1.0 },  // Amber
+    { base: "#5c22a8", accent: "#d9b8ff", style: "craters", ring: "#e6d4ff", atmo: 0xd9b8ff, size: 1.0 },  // Violet
+    { base: "#8a1a3a", accent: "#ffb8c4", style: "craters", ring: null,      atmo: 0xffb8c4, size: 1.0 },  // Crimson
+    { base: "#3a86b0", accent: "#eafcff", style: "stripes", ring: "#dff2ff", atmo: 0x9fe0ff, size: 1.28 }, // Frost = SATURN
+    { base: "#2a8a5c", accent: "#a8ffd9", style: "craters", ring: null,      atmo: 0xa8ffd9, size: 1.0 },  // Aurora
+    { base: "#1a2f6e", accent: "#b8c8ff", style: "craters", ring: null,      atmo: 0x5c8aff, size: 1.12 }, // Fathom (deep giant, no ring — Saturn stays unique to Frost)
+    { base: "#a8481a", accent: "#ffcf5c", style: "stripes", ring: null,      atmo: 0xffb890, size: 1.0 },  // Ember
+  ];
+  function styleDestPlanet(region) {
+    const s = DEST_STYLE[region % DEST_STYLE.length];
+    while (destPlanet.children.length) { const c = destPlanet.children[0]; disposeGroup(c); destPlanet.remove(c); }
+    const built = buildPlanet(34 * s.size, s.base, s.accent, s.style, s.ring, s.atmo);
+    while (built.children.length) destPlanet.add(built.children[0]);   // children[0] stays the sphere (flyby ref)
+  }
+  function tickBackdrop(dt) {
+    if (!activeBackdrop) return;
+    const still = reduceMotion();
+    if (activeBackdrop.tick) activeBackdrop.tick(dt, still);
+    // gentle life on suns (corona breathe) — off under reduced motion
+    activeBackdrop.group.children.forEach((c) => {
+      if (c.userData.sun) c.scale.setScalar(still ? 1 : 1 + Math.sin(performance.now() * 0.0016 + c.position.x) * 0.045);
+    });
+  }
 
   // ---------- galaxy application: retint sky, fog, stars, beacons, nebulae ----------
   const starMats = starLayers.map((L, i) => null); // filled below
@@ -1034,11 +1165,14 @@ export function createGame(root, T3) {
       if (n.material.map) n.material.map.dispose();
       n.material.map = radialGlow(galaxy.nebula[i % 2]);
     });
-    planets.forEach((p) => {
-      const m = p.children[0].material;
-      if (m && m.color) m.color.setHex(galaxy.planetTint);
-    });
+    // Signature backdrop: restyle the destination world and swap in this
+    // region's far scenery (Saturn / sun vista / asteroid belt / aurora …).
+    styleDestPlanet(idx);
+    if (activeBackdrop) activeBackdrop.group.visible = false;
+    activeBackdrop = backdrops[idx % backdrops.length];
+    if (activeBackdrop) activeBackdrop.group.visible = true;
   }
+  applyGalaxy(0);   // establish a region look (Verdant) before the first brief sets the real one
 
   // ---------- hero rocket ----------
   const COLORS = [
@@ -3022,6 +3156,7 @@ export function createGame(root, T3) {
     }
 
     updateMusic();   // idempotent: starts/stops the drone with flight and tracks speed
+    tickBackdrop(dt);   // animate the active region's set-piece (belt drift / sun breathe / aurora)
 
     // telemetry first — it must not depend on whether we drew this frame
     if ((diagFrame = (diagFrame + 1) % 3) === 0) {
@@ -3091,6 +3226,7 @@ export function createGame(root, T3) {
     listeners.length = 0;
     signCache.forEach((t) => { try { t.dispose(); } catch (e) {} });
     signCache.clear();
+    try { backdrops.forEach((b) => b && disposeGroup(b.group)); disposeGroup(destPlanet); beltGeo.dispose(); } catch (e) { /* ignore */ }
     try { renderer.dispose(); } catch (e) { /* ignore */ }
     stopMusic();
     try { if (bloomPass) bloomPass.dispose(); if (composer) composer.dispose(); } catch (e) { /* ignore */ }

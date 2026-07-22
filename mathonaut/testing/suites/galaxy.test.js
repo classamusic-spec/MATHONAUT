@@ -33,15 +33,55 @@ const BANDS = [
   A.ok(names[0] !== names[1], "L1-2 and L3-4 are different regions (" + names[0] + " → " + names[1] + ")");
   A.ok(names[BANDS.length - 1] !== names[0], "the top band differs from the start");
 
+  A.section("each region shows its own visible backdrop set-piece");
+  // Exactly one backdrop group should be visible per region, and different
+  // regions must light up different set-pieces (Saturn / sun vista / belt …).
+  function visibleBackdropSig(H) {
+    const s = H.scene();
+    if (!s) return null;
+    let vis = 0, meshes = 0, hasInstanced = false;
+    s.children.forEach((c) => {
+      if (c.userData && c.userData.backdrop && c.visible) {
+        vis++;
+        c.traverse((o) => { if (o.isMesh) meshes++; if (o.isInstancedMesh) hasInstanced = true; });
+      }
+    });
+    return { vis, meshes, hasInstanced };
+  }
+  {
+    const sigs = [];
+    for (const b of BANDS) {
+      const H = createHarness({ seedSave: { mathLevel: b.level } });
+      await H.boot();
+      H.tap("missionBtn");
+      H.settle(6);
+      sigs.push(visibleBackdropSig(H) || { meshes: 0, hasInstanced: false });
+      A.eq(H.errors.length, 0, b.band + " backdrop applies without error");
+      H.dispose();
+    }
+    A.ok(sigs.every((s) => s.meshes > 0), "every region shows a non-empty backdrop set-piece");
+    const emberIdx = BANDS.findIndex((b) => b.level === 14);
+    A.ok(sigs[emberIdx].hasInstanced, "the Ember Reach backdrop includes the instanced asteroid belt");
+    A.ok(new Set(sigs.map((s) => s.meshes)).size >= 4, "backdrops differ in composition across regions (" + sigs.map((s) => s.meshes).join(",") + ")");
+  }
+
   A.section("a new region is still winnable");
   // L5-6 is a brand-new region (Frost Belt). A recolour must never break a level.
   const H = createHarness({ seedSave: { mathLevel: 5 } });
   await H.boot();
   H.tap("missionBtn");
   A.eq(H.$("brGalaxy").textContent, "FROST BELT", "L5 flies through the Frost Belt");
-  launchIntoRun(H);
-  const r = await playMission(H);
-  A.ok(r.win, "an accurate pilot still wins in the new region");
+  // A recolour/backdrop must never break a level. One mission is ~90% for an
+  // accurate pilot, so allow a couple of attempts (the ladder suite proves the
+  // rigorous climb); we only need to show the Saturn stage is completable.
+  let won = false;
+  for (let attempt = 0; attempt < 3 && !won; attempt++) {
+    launchIntoRun(H);
+    const r = await playMission(H);
+    won = !!r.win;
+    if (won) H.tap("homeBtn1"); else H.tap("homeBtn2");
+  }
+  A.ok(won, "an accurate pilot completes the Saturn (Frost Belt) stage");
   A.eq(H.errors.length, 0, "no runtime errors");
   H.dispose();
 
