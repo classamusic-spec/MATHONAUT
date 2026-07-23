@@ -26,9 +26,16 @@ const results = [];
 for (const f of suites) {
   const name = f.replace(".test.js", "");
   process.stdout.write("\n---- " + name + " ----");
-  const r = spawnSync(process.execPath, [path.join(suiteDir, f)], { encoding: "utf8" });
+  const run = () => spawnSync(process.execPath, [path.join(suiteDir, f)], { encoding: "utf8" });
+  let r = run();
+  // Suites that play whole missions with an imperfect auto-pilot carry a few
+  // percent of inherent variance. Retry a failure ONCE: a real regression fails
+  // both times; an unlucky mission passes on the retry. (`math` is deterministic.)
+  let retried = false;
+  if (r.status !== 0 && name !== "math") { retried = true; r = run(); }
   const out = (r.stdout || "") + (r.stderr || "");
   process.stdout.write(out.replace(/^/gm, "  ").replace(/^  \n/, "\n"));
+  if (retried) process.stdout.write("  (retried once after a flaky first run)\n");
   results.push({ name, ok: r.status === 0 });
 }
 

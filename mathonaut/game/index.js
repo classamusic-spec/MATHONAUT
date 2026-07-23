@@ -58,7 +58,7 @@ export const MARKUP = `
      Kept small and pinned to the very top so it never covers the lanes or the
      incoming hazards — the answers live in the strip below, this is just the
      prompt. */
-  #question{position:absolute;top:6.2%;left:50%;transform:translateX(-50%) translateY(4px);
+  #question{position:absolute;top:calc(90px + env(safe-area-inset-top));left:50%;transform:translateX(-50%) translateY(4px);
     text-align:center;opacity:0;transition:opacity .3s cubic-bezier(.2,.8,.2,1),transform .3s cubic-bezier(.2,.8,.2,1);
     white-space:nowrap;max-width:94vw;pointer-events:none;}
   #question.show{opacity:1;transform:translateX(-50%) translateY(0);}
@@ -345,7 +345,7 @@ export const MARKUP = `
 
   /* answer strip — the 3D signs are only legible for ~1s at flight speed, which is
      hopeless for a 4-year-old. These are locked to lanes and readable from spawn. */
-  #ansStrip{position:absolute;left:0;right:0;top:39%;display:none;
+  #ansStrip{position:absolute;left:0;right:0;top:28%;display:none;
     justify-content:center;gap:min(6vw,30px);pointer-events:none;}
   #ansStrip.on{display:flex;}
   /* Boxes are deliberately shorter and semi-translucent so you can still see the
@@ -378,7 +378,7 @@ export const MARKUP = `
   .ans.wrongpick{position:relative;}
   .ans.right[data-mark]::after{background:#5cffc4;}
   .ans.wrongpick[data-mark]::after{background:#ff6a86;}
-  #laneDots{position:absolute;left:0;right:0;top:calc(39% + 66px);display:none;
+  #laneDots{position:absolute;left:0;right:0;top:calc(28% + 66px);display:none;
     justify-content:center;gap:min(6vw,30px);pointer-events:none;}
   #laneDots.on{display:flex;}
   .ld{min-width:21vw;max-width:104px;display:flex;justify-content:center;}
