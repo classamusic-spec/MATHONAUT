@@ -2035,100 +2035,348 @@ export function createGame(root, T3) {
       grp.add(m);
     }
   }
+  // ---------- shared parts for hazards + pickups ----------
+  // Builders run a bounded number of times (pools), but repeated sub-parts must
+  // never allocate: every geometry/material below is created once and shared.
+  //
+  // Readability contract for the hazard family — at spawn distance an obstacle is
+  // ~15px of dark shape, so each kind is separated by SILHOUETTE first (round /
+  // long / flat-disc / flat-shard) and only then by colour. Every hazard also
+  // carries one authored emissive warning cue (molten seam, hot tail, red sensor,
+  // torn-edge glow) drawn with `fog: false` so the "avoid me" signal survives the
+  // distance the body fades into. Pickups get the opposite read: bright bodies,
+  // clean engineered shapes, gold/mint glows.
+  // Warning cues are SOLID, not additive. Additive red over a blue-grey hull turns
+  // pink under bloom + filmic tone mapping, which reads friendly — exactly the
+  // wrong signal. Solid unlit red keeps its hue at every distance and exposure;
+  // additive is reserved for things that genuinely emit (tails, halos, seams).
+  const glowMat = (color, opacity) => new T3.MeshBasicMaterial({
+    color, transparent: true, opacity,
+    blending: T3.AdditiveBlending, depthWrite: false, fog: false,
+  });
+  const solidMat = (color) => new T3.MeshBasicMaterial({ color, fog: false });
+  // soft round falloff, so a halo never shows a polygon or a card edge
+  let haloTex = null;
+  function haloTexture() {
+    if (haloTex) return haloTex;
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 128;
+    const g = cv.getContext("2d");
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.4, "rgba(255,255,255,0.34)");
+    grd.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+    haloTex = new T3.CanvasTexture(cv);
+    return haloTex;
+  }
+  const haloMat = (color, opacity) => new T3.MeshBasicMaterial({
+    map: haloTexture(), color, transparent: true, opacity,
+    blending: T3.AdditiveBlending, depthWrite: false, fog: false,
+  });
+  const MAT = {
+    molten: solidMat(0xff8a2e),       // magma showing through cracked rock
+    hot: solidMat(0xff5a1e),          // torn, still-burning metal
+    red: solidMat(0xff2e46),          // hostile optics — enemy faction colour
+    amber: solidMat(0xffb02a),
+    emberGlow: glowMat(0xff8a3a, 0.3),
+    goldGlow: glowMat(0xffe0a0, 0.75),
+    mint: solidMat(0x6effc6),
+    haloGold: haloMat(0xffd06a, 0.85),
+    haloMint: haloMat(0x86f2d6, 0.7),
+  };
+  // lit surfaces, shared across every pooled instance of every kind (five asteroids
+  // used to mean five copies of the same five toon materials)
+  const SKIN = {
+    rock: toon(0x8b7259), boulder: toon(0x6f5a45),
+    craterFloor: toon(0x53412f), craterLip: toon(0x9c7f63), char: toon(0x3a2c1f),
+    ice: toon(0xa8c0dc), iceShard: toon(0xdcecff),
+    tailOuter: new T3.MeshBasicMaterial({ color: 0xff7a24, fog: false }),
+    tailMid: new T3.MeshBasicMaterial({ color: 0xffc23a, fog: false }),
+    tailCore: glowMat(0xfff4d6, 0.95),
+    hull: toon(0x515c7d), hullDark: toon(0x2f3752),
+    wreck: toon(0x343a4b), wreckDark: toon(0x1e2231),
+    gem: toon(0xffd24a, { emissive: 0xff9a12, emissiveIntensity: 0.55 }),
+    bracket: toon(0xffe9a8, { emissive: 0x7a5400, emissiveIntensity: 0.45 }),
+    pod: toon(0xdde7f4), podBelt: toon(0x2f7f86), podPost: toon(0xf0b846),
+  };
+  const GEO = {
+    craterFloor: new T3.CircleGeometry(0.17, 9),
+    craterLip: new T3.RingGeometry(0.17, 0.25, 9),
+    magma: new T3.CircleGeometry(0.2, 9),
+    magmaRim: new T3.RingGeometry(0.2, 0.31, 9),
+    magmaGlow: new T3.CircleGeometry(0.36, 9),
+    boulder: new T3.IcosahedronGeometry(0.3, 0),
+    chip: new T3.OctahedronGeometry(0.1, 0),
+    lens: new T3.IcosahedronGeometry(0.12, 0),
+    pod: new T3.BoxGeometry(0.34, 0.22, 0.44),
+    plate: new T3.BoxGeometry(0.92, 0.055, 0.6),
+    hotFace: new T3.PlaneGeometry(0.78, 0.48),
+    tear: new T3.PlaneGeometry(0.94, 0.16),
+    strut: new T3.CylinderGeometry(0.04, 0.04, 0.95, 5),
+    halo: new T3.PlaneGeometry(2.3, 2.3),
+  };
+  // Diagonal caution stripes — the shared "this is hostile hardware" marking,
+  // worn by the enemy saucers, the wreckage and the boss alike.
+  let hazCanvas = null;
+  const stripeMats = {};
+  function stripeMat(rep) {
+    if (stripeMats[rep]) return stripeMats[rep];
+    if (!hazCanvas) {
+      hazCanvas = document.createElement("canvas");
+      hazCanvas.width = 64; hazCanvas.height = 32;
+      const g = hazCanvas.getContext("2d");
+      g.fillStyle = "#23242e"; g.fillRect(0, 0, 64, 32);
+      g.fillStyle = "#ffc23a";
+      for (let i = -1; i < 5; i++) {
+        g.beginPath();
+        g.moveTo(i * 16, 0); g.lineTo(i * 16 + 9, 0);
+        g.lineTo(i * 16 + 9 + 14, 32); g.lineTo(i * 16 + 14, 32);
+        g.closePath(); g.fill();
+      }
+    }
+    const tx = new T3.CanvasTexture(hazCanvas);
+    tx.wrapS = tx.wrapT = T3.RepeatWrapping;
+    tx.repeat.set(rep, 1); tx.anisotropy = 4;
+    const m = new T3.MeshToonMaterial({ color: 0xffffff, gradientMap: gradMap, map: tx, side: T3.DoubleSide });
+    stripeMats[rep] = m;
+    return m;
+  }
+
   function buildAsteroid() {
     const grp = new T3.Group();
-    const R = 0.85 + Math.random() * 0.45;
+    const R = 0.82 + Math.random() * 0.42;
+    // Silhouette: the round, heavy one. Boulders welded to the surface keep the
+    // outline lumpy so it never reads as the same faceted ball as the wreckage.
     const g = new T3.IcosahedronGeometry(R, 1), p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const v = new T3.Vector3().fromBufferAttribute(p, i);
-      v.multiplyScalar(1 + (Math.random() - 0.5) * 0.38);
+      v.multiplyScalar(1 + (Math.random() - 0.5) * 0.16);
       p.setXYZ(i, v.x, v.y, v.z);
     }
     g.computeVertexNormals();
-    grp.add(new T3.Mesh(g, toon(0x9c7a5e)));
-    scatterOnSphere(grp, R, 5, () => new T3.Mesh(new T3.CircleGeometry(0.13 + Math.random() * 0.12, 10), toon(0x6e5440)));
-    scatterOnSphere(grp, R, 3, () => new T3.Mesh(new T3.CircleGeometry(0.1 + Math.random() * 0.08, 8), toon(0xc4a184)));
+    grp.add(new T3.Mesh(g, SKIN.rock));
+    for (let i = 0; i < 4; i++) {
+      const b = new T3.Mesh(GEO.boulder, SKIN.boulder);
+      b.position.copy(randDir().multiplyScalar(R * 0.88));
+      b.scale.setScalar(R * (0.5 + Math.random() * 0.45));
+      b.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      grp.add(b);
+    }
+    // impact craters: a dark floor inside a raised lip, so it reads as *rock*
+    // (seated at 0.9R, inside the displaced hull, so a lip never floats off the
+    // silhouette as a stray wire loop)
+    scatterOnSphere(grp, R * 0.94, 4, () => {
+      const c = new T3.Group();
+      c.add(new T3.Mesh(GEO.craterFloor, SKIN.craterFloor));
+      const lip = new T3.Mesh(GEO.craterLip, SKIN.craterLip); lip.position.z = 0.012; c.add(lip);
+      c.scale.setScalar(0.55 + Math.random() * 0.7);
+      return c;
+    });
+    // Molten breaches — the warning cue, and the only bright thing on a rock. Sized
+    // at roughly a third of the body on purpose: at spawn distance an obstacle is
+    // barely 30px across, so a thin hairline seam would be sub-pixel and the
+    // "this one hurts" signal would simply not exist when the child needs it.
+    scatterOnSphere(grp, R * 0.95, 2, () => {
+      const c = new T3.Group();
+      c.add(new T3.Mesh(GEO.magmaGlow, MAT.emberGlow));
+      const rim = new T3.Mesh(GEO.magmaRim, SKIN.char); rim.position.z = 0.012; c.add(rim);
+      const lava = new T3.Mesh(GEO.magma, MAT.molten); lava.position.z = 0.014; c.add(lava);
+      c.scale.setScalar(0.85 + Math.random() * 0.45);
+      return c;
+    });
     grp.userData.spin = new T3.Vector3(Math.random(), Math.random() * 1.4, Math.random());
     return grp;
   }
   function buildComet() {
     const grp = new T3.Group();
-    grp.add(new T3.Mesh(new T3.IcosahedronGeometry(0.55, 1), toon(0x8a97b8)));
-    scatterOnSphere(grp, 0.55, 3, () => new T3.Mesh(new T3.CircleGeometry(0.1, 8), toon(0x5c6a8f)));
-    const f1 = new T3.Mesh(new T3.ConeGeometry(0.55, 2.4, 10), new T3.MeshBasicMaterial({ color: 0xff9a3c }));
-    f1.rotation.x = -Math.PI / 2; f1.position.z = -1.3; grp.add(f1);
-    const f2 = new T3.Mesh(new T3.ConeGeometry(0.32, 1.7, 8), new T3.MeshBasicMaterial({ color: 0xffe066 }));
-    f2.rotation.x = -Math.PI / 2; f2.position.z = -1.1; grp.add(f2);
-    grp.userData.flames = [f1, f2];
+    // Silhouette: the long one. Nothing else in the family is elongated, so even
+    // as a black streak it is instantly "the fast thing" (it flies at 1.7x).
+    const core = new T3.Mesh(new T3.IcosahedronGeometry(0.42, 1), SKIN.ice);
+    core.scale.set(0.95, 0.85, 1.8); grp.add(core);
+    for (let i = 0; i < 5; i++) {
+      const s = new T3.Mesh(GEO.chip, SKIN.iceShard);
+      const v = randDir();
+      s.position.set(v.x * 0.36, v.y * 0.32, v.z * 0.72);
+      s.scale.setScalar(0.7 + Math.random() * 0.9);
+      s.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      grp.add(s);
+    }
+    // Compression shock at the nose: a burning *ring* around an icy nucleus rather
+    // than a glowing ball — head-on (the angle you meet it at) it must still read
+    // as a solid object coming at you, never as a collectable light.
+    // (red-hot, not gold: head-on the comet is a ring, and gold would put it one
+    // glance away from the gold star the child is meant to fly *into*)
+    const shock = new T3.Mesh(new T3.RingGeometry(0.4, 0.58, 14), MAT.hot);
+    shock.position.z = 0.62; grp.add(shock);
+    const cap = new T3.Mesh(new T3.ConeGeometry(0.2, 0.3, 8), MAT.red);
+    cap.rotation.x = Math.PI / 2; cap.position.z = 0.9; grp.add(cap);
+    // Layered tail. The outer two cones stay opaque so the streak holds its shape
+    // against a bright sky; only the inner core is additive, and blooms.
+    const f1 = new T3.Mesh(new T3.ConeGeometry(0.58, 2.6, 10), SKIN.tailOuter);
+    f1.rotation.x = -Math.PI / 2; f1.position.z = -1.45; grp.add(f1);
+    const f2 = new T3.Mesh(new T3.ConeGeometry(0.34, 2.0, 8), SKIN.tailMid);
+    f2.rotation.x = -Math.PI / 2; f2.position.z = -1.2; grp.add(f2);
+    const f3 = new T3.Mesh(new T3.ConeGeometry(0.16, 1.3, 6), SKIN.tailCore);
+    f3.rotation.x = -Math.PI / 2; f3.position.z = -1.15; grp.add(f3);
+    grp.userData.flames = [f1, f2, f3];
     return grp;
   }
   function buildUFO() {
     const grp = new T3.Group();
-    const disc = new T3.Mesh(new T3.SphereGeometry(1.25, 20, 12), toon(0xffb84d));
-    disc.scale.set(1, 0.32, 1); grp.add(disc);
-    const belly = new T3.Mesh(new T3.SphereGeometry(0.7, 16, 10), toon(0xe8973b));
-    belly.scale.set(1, 0.5, 1); belly.position.y = -0.18; grp.add(belly);
-    const dome = new T3.Mesh(
-      new T3.SphereGeometry(0.55, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2),
-      new T3.MeshToonMaterial({ color: 0xaee6ff, gradientMap: gradMap, transparent: true, opacity: 0.55 })
-    );
-    dome.position.y = 0.16; grp.add(dome);
-    const head = new T3.Mesh(new T3.SphereGeometry(0.24, 12, 10), toon(0x6fd649));
-    head.position.y = 0.36; grp.add(head);
-    [-0.09, 0.09].forEach((x) => {
-      const eye = new T3.Mesh(new T3.SphereGeometry(0.07, 8, 8), new T3.MeshBasicMaterial({ color: 0xffffff }));
-      eye.position.set(x, 0.42, 0.18); grp.add(eye);
-      const pup = new T3.Mesh(new T3.SphereGeometry(0.035, 6, 6), new T3.MeshBasicMaterial({ color: 0x1e2a44 }));
-      pup.position.set(x, 0.42, 0.245); grp.add(pup);
-    });
-    const ant = new T3.Mesh(new T3.CylinderGeometry(0.02, 0.02, 0.22, 6), toon(0x4aa832));
-    ant.position.y = 0.62; grp.add(ant);
-    const bob = new T3.Mesh(new T3.SphereGeometry(0.05, 8, 8), new T3.MeshBasicMaterial({ color: 0xffe066 }));
-    bob.position.y = 0.75; grp.add(bob);
-    for (let i = 0; i < 8; i++) {
-      const l = new T3.Mesh(new T3.SphereGeometry(0.09, 8, 8),
-        new T3.MeshBasicMaterial({ color: i % 2 ? 0xff5c6a : 0xffe066 }));
-      const a = (i / 8) * Math.PI * 2;
-      l.position.set(Math.cos(a) * 1.05, -0.02, Math.sin(a) * 1.05); grp.add(l);
+    // Silhouette: the flat disc. Hard faceted machine — gunmetal plating, caution
+    // stripes and a red sensor band, so it can never be mistaken for a pickup.
+    const top = new T3.Mesh(new T3.CylinderGeometry(0.6, 1.14, 0.32, 8), SKIN.hull);
+    top.position.y = 0.16; grp.add(top);
+    const bot = new T3.Mesh(new T3.CylinderGeometry(1.14, 0.52, 0.32, 8), SKIN.hull);
+    bot.position.y = -0.16; grp.add(bot);
+    // caution band around the rim — a marking, not a colour wash, so the "avoid"
+    // signal survives for a colour-blind child and at 30px
+    grp.add(new T3.Mesh(new T3.CylinderGeometry(1.18, 1.18, 0.24, 8, 1, true), stripeMat(2)));
+    // The eye: one big solid-red sensor lens on the spin axis. It is deliberately
+    // ~40% of the hull width — the saucer turns constantly, so the stare has to sit
+    // where rotation cannot hide it, and be large enough to resolve at distance.
+    const socket = new T3.Mesh(new T3.CylinderGeometry(0.34, 0.58, 0.26, 8), SKIN.hullDark);
+    socket.position.y = 0.42; grp.add(socket);
+    const eye = new T3.Mesh(new T3.SphereGeometry(0.42, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), MAT.red);
+    eye.position.y = 0.5; eye.scale.y = 0.85; grp.add(eye);
+    const brow = new T3.Mesh(new T3.TorusGeometry(0.42, 0.06, 4, 10), SKIN.hullDark);
+    brow.position.y = 0.5; brow.rotation.x = Math.PI / 2; grp.add(brow);
+    const mast = new T3.Mesh(new T3.CylinderGeometry(0.04, 0.06, 0.22, 5), SKIN.hullDark);
+    mast.position.y = 0.82; grp.add(mast);
+    // ventral targeting turret + scan cone: it is visibly hunting your lane, which
+    // is the anticipation cue for the lane-to-lane dart it is about to make
+    const turret = new T3.Mesh(new T3.CylinderGeometry(0.32, 0.19, 0.28, 8), SKIN.hullDark);
+    turret.position.y = -0.42; grp.add(turret);
+    const gun = new T3.Mesh(GEO.lens, MAT.red);
+    gun.position.y = -0.58; gun.scale.setScalar(1.9); grp.add(gun);
+    // three thruster pods break the disc outline into something mechanical
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.5;
+      const pod = new T3.Mesh(GEO.pod, SKIN.hullDark);
+      pod.position.set(Math.cos(a) * 0.98, -0.04, Math.sin(a) * 0.98);
+      pod.rotation.y = Math.PI / 2 - a; grp.add(pod);
+      const ex = new T3.Mesh(GEO.lens, MAT.amber);
+      ex.position.set(Math.cos(a) * 1.2, -0.04, Math.sin(a) * 1.2);
+      ex.scale.setScalar(0.85); grp.add(ex);
     }
     return grp;
   }
-  let coinTex = null;
+  // The pickup star: a faceted gold gem in a polished bracket ring. The ring lies
+  // in the spin plane, so the reward keeps a bright, constant silhouette even at
+  // the instant the star itself turns edge-on — it is never "gone" during motion.
+  const starGeo = (() => {
+    const sh = new T3.Shape();
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+      const r = i % 2 ? 0.26 : 0.6;
+      const x = Math.cos(a) * r, y = Math.sin(a) * r;
+      if (i === 0) sh.moveTo(x, y); else sh.lineTo(x, y);
+    }
+    sh.closePath();
+    const geo = new T3.ExtrudeGeometry(sh, {
+      depth: 0.13, bevelEnabled: true, bevelThickness: 0.05,
+      bevelSize: 0.07, bevelSegments: 1, steps: 1,
+    });
+    geo.center();
+    return geo;
+  })();
+  const ringGeo = new T3.TorusGeometry(0.72, 0.05, 5, 18);
   function buildCrystal() {
     const grp = new T3.Group();
-    const coin = new T3.Mesh(new T3.CylinderGeometry(0.5, 0.5, 0.14, 20),
-      toon(0xffcf3f, { emissive: 0x8a5a00, emissiveIntensity: 0.25 }));
-    coin.rotation.x = Math.PI / 2; grp.add(coin);
-    if (!coinTex) coinTex = textTexture("★", "#e8a20c", "#ffcf3f", "#ffffff");
-    const face = new T3.Mesh(new T3.PlaneGeometry(0.8, 0.8),
-      new T3.MeshBasicMaterial({ map: coinTex, transparent: true }));
-    face.position.z = 0.08; grp.add(face);
-    const face2 = face.clone(); face2.position.z = -0.08; face2.rotation.y = Math.PI; grp.add(face2);
+    const star = new T3.Mesh(starGeo, SKIN.gem);
+    grp.add(star);
+    // emissive seam: the same star, fatter and flatter, so only a bright rim of it
+    // escapes the solid gem — a lit edge rather than a glowing blob
+    const seam = new T3.Mesh(starGeo, MAT.goldGlow);
+    seam.scale.set(1.09, 1.09, 0.4); grp.add(seam);
+    const ring = new T3.Mesh(ringGeo, SKIN.bracket);
+    ring.rotation.x = Math.PI / 2; grp.add(ring);
+    for (let i = 0; i < 3; i++) {   // chips orbiting the bracket
+      const a = (i / 3) * Math.PI * 2;
+      const c = new T3.Mesh(GEO.chip, MAT.goldGlow);
+      c.position.set(Math.cos(a) * 0.72, 0, Math.sin(a) * 0.72);
+      c.scale.setScalar(1.3); grp.add(c);
+    }
+    // Three crossed halo cards rather than one: the pickup spins on Y and has no
+    // billboard hook, so a single card would turn edge-on and the treasure would
+    // visibly blink out of the scene twice a second.
+    for (let i = 0; i < 3; i++) {
+      const h = new T3.Mesh(GEO.halo, MAT.haloGold);
+      h.rotation.y = (i / 3) * Math.PI; grp.add(h);
+    }
     return grp;
   }
+  let cargoTex = null;
   function buildCrate() {
     const grp = new T3.Group();
-    const box = new T3.Mesh(new T3.BoxGeometry(0.72, 0.72, 0.72), toon(0xd9a35c));
-    grp.add(box);
-    const bandMat = toon(0x8a5f2f);
-    [0.001, Math.PI / 2].forEach((r) => {
-      const b = new T3.Mesh(new T3.BoxGeometry(0.78, 0.14, 0.78), bandMat);
-      b.rotation.z = r; grp.add(b);
+    // The cargo pod: bright, clean, engineered — the exact opposite read to the
+    // dark jagged hazards, so "collect" and "avoid" separate on shape and value.
+    grp.add(new T3.Mesh(new T3.BoxGeometry(0.64, 0.64, 0.64), SKIN.pod));
+    grp.add(new T3.Mesh(new T3.BoxGeometry(0.7, 0.15, 0.7), SKIN.podBelt));
+    const postG = new T3.BoxGeometry(0.1, 0.7, 0.1);
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+      const post = new T3.Mesh(postG, SKIN.podPost);
+      post.position.set(sx * 0.31, 0, sz * 0.31); grp.add(post);
     });
-    const glow = new T3.Mesh(new T3.PlaneGeometry(1.5, 1.5),
-      new T3.MeshBasicMaterial({ color: 0xffcf5c, transparent: true, opacity: 0.16,
-        blending: T3.AdditiveBlending, depthWrite: false, fog: false }));
-    grp.add(glow); grp.userData.halo = glow;
+    const stripG = new T3.BoxGeometry(0.56, 0.05, 0.05);   // running lights, pure bloom
+    [[0, 0.33], [Math.PI / 2, 0.33], [0, -0.33], [Math.PI / 2, -0.33]].forEach(([ry, z], i) => {
+      const s = new T3.Mesh(stripG, MAT.mint);
+      s.position.set(i % 2 ? z : 0, 0.325, i % 2 ? 0 : z);
+      s.rotation.y = ry; grp.add(s);
+    });
+    if (!cargoTex) cargoTex = textTexture("+", "#5ef0c4", "#10353d", "#b6ffe6");
+    const decG = new T3.PlaneGeometry(0.44, 0.26);
+    const decMat = new T3.MeshBasicMaterial({ map: cargoTex, transparent: true });
+    [[0, 0.325, 0], [0, -0.325, Math.PI], [0.325, 0, Math.PI / 2], [-0.325, 0, -Math.PI / 2]]
+      .forEach(([x, z, ry]) => {
+        const d = new T3.Mesh(decG, decMat);
+        d.position.set(x, 0.16, z); d.rotation.y = ry; grp.add(d);
+      });
+    const glow = new T3.Mesh(GEO.halo, MAT.haloMint);
+    grp.add(glow); grp.userData.halo = glow;   // billboarded by the update loop
     grp.userData.spin = new T3.Vector3(0.8, 1.2, 0.5);
     return grp;
   }
   function buildDebris() {
     const grp = new T3.Group();
-    grp.add(new T3.Mesh(new T3.IcosahedronGeometry(0.55, 0),
-      toon(0xff7d5c, { emissive: 0x7a1c08, emissiveIntensity: 0.35 })));
-    const spike = new T3.Mesh(new T3.ConeGeometry(0.14, 0.5, 6), toon(0xffab2e));
-    spike.position.y = 0.6; grp.add(spike);
-    const spike2 = spike.clone(); spike2.rotation.z = Math.PI; spike2.position.y = -0.6; grp.add(spike2);
+    // Silhouette: the flat one. Torn hull plating, tumbling fast (spin 2,2,1), so
+    // it flickers between a wide panel and a thin edge — a motion signature no
+    // other hazard has, on top of the molten tear lines down every broken edge.
+    // Charred near-black, deliberately darker than the blue-grey rocks in the
+    // background belt: wreckage that shares their value would vanish into scenery
+    // at exactly the moment it matters.
+    for (let i = 0; i < 3; i++) {
+      const pl = new T3.Mesh(GEO.plate, SKIN.wreck);
+      pl.scale.set(0.95 + Math.random() * 0.35, 1, 0.9 + Math.random() * 0.3);
+      pl.position.set((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5);
+      pl.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      grp.add(pl);
+      // One face still glowing from the break, the other cold steel — and the hot
+      // side alternates between panels, so some heat always faces the camera.
+      // Tumbling at 2 rad/s that alternation is the debris' whole signature: it
+      // *flashes* where the asteroid merely turns.
+      const up = i % 2 === 0;
+      const hot = new T3.Mesh(GEO.hotFace, i === 0 ? stripeMat(3) : MAT.hot);
+      hot.position.y = up ? 0.033 : -0.033;
+      hot.rotation.x = up ? -Math.PI / 2 : Math.PI / 2; pl.add(hot);
+      [0.28, -0.28].forEach((z) => {                    // molten torn edges
+        const tear = new T3.Mesh(GEO.tear, MAT.hot);
+        tear.position.set(0, up ? -0.033 : 0.033, z);
+        tear.rotation.x = up ? Math.PI / 2 : -Math.PI / 2; pl.add(tear);
+      });
+    }
+    for (let i = 0; i < 2; i++) {                        // snapped structural spars
+      const s = new T3.Mesh(GEO.strut, SKIN.wreckDark);
+      s.position.set((Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4);
+      s.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      grp.add(s);
+    }
+    for (let i = 0; i < 3; i++) {                        // loose bolts
+      const c = new T3.Mesh(GEO.chip, SKIN.wreckDark);
+      c.position.copy(randDir().multiplyScalar(0.52));
+      grp.add(c);
+    }
     grp.userData.spin = new T3.Vector3(2, 2, 1);
     return grp;
   }
@@ -2213,33 +2461,121 @@ export function createGame(root, T3) {
   // ---------- boss ----------
   let boss = null;
   function buildBoss(color) {
+    // A dreadnought, not a smiley saucer: layered armour plating, caution stripes
+    // in the same faction marking the little enemy saucers wear, twelve rim weapon
+    // pods, three primary turrets and a caged power core on top.
+    //
+    // It rotates on Y continuously, so every identity feature lives either on the
+    // spin axis (the core above, the cannon below) or is radially repeated (visor
+    // band, turrets) — the menace can never turn away from the player.
+    //
+    // Names read by the battle-damage code elsewhere in this file and which MUST
+    // survive: "bossDome" (emissiveIntensity + opacity are driven down as it is
+    // hurt), "bl0".."bl11" (running lights switched off one per hit), "bossEmit"
+    // (scaled while the beam charges).
     const grp = new T3.Group();
-    const disc = new T3.Mesh(new T3.SphereGeometry(3.6, 24, 14), toon(0x8a97b8));
-    disc.scale.set(1, 0.3, 1); grp.add(disc);
-    const belly = new T3.Mesh(new T3.SphereGeometry(2.1, 20, 12), toon(0x6b7899));
-    belly.scale.set(1, 0.5, 1); belly.position.y = -0.5; grp.add(belly);
+    const hullMat = toon(0x4b5573), plateMat = toon(0x5d688a), darkMat = toon(0x2b3149);
+
+    // heavy armoured belly
+    const belly = new T3.Mesh(new T3.CylinderGeometry(2.5, 1.05, 1.05, 12), hullMat);
+    belly.position.y = -0.55; grp.add(belly);
+
+    // main plate ring — the widest read, faceted so it never looks inflatable
+    grp.add(new T3.Mesh(new T3.CylinderGeometry(3.45, 3.45, 0.5, 12), plateMat));
+    grp.add(new T3.Mesh(new T3.CylinderGeometry(3.52, 3.52, 0.34, 12, 1, true), stripeMat(6)));
+
+    // radial hull plating + glowing vent ports: visible construction
+    const platingG = new T3.BoxGeometry(0.9, 0.16, 1.5);
+    const ventG = new T3.CircleGeometry(0.19, 8);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const pl = new T3.Mesh(platingG, darkMat);
+      pl.position.set(Math.cos(a) * 2.4, 0.3, Math.sin(a) * 2.4);
+      pl.rotation.y = Math.PI / 2 - a; grp.add(pl);
+      if (i % 2 === 0) {
+        const v = new T3.Mesh(ventG, MAT.molten);
+        v.position.set(Math.cos(a) * 2.4, 0.4, Math.sin(a) * 2.4);
+        v.rotation.x = -Math.PI / 2; grp.add(v);
+      }
+    }
+
+    // upper superstructure + hostile sensor visor
+    const tower = new T3.Mesh(new T3.CylinderGeometry(1.3, 2.1, 0.78, 12), hullMat);
+    tower.position.y = 0.6; grp.add(tower);
+    const visor = new T3.Mesh(new T3.CylinderGeometry(1.58, 1.68, 0.3, 16, 1, true), MAT.red);
+    visor.position.y = 0.64; grp.add(visor);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const l = new T3.Mesh(GEO.lens, MAT.red);
+      l.position.set(Math.cos(a) * 1.66, 0.64, Math.sin(a) * 1.66);
+      l.scale.setScalar(2.3); grp.add(l);
+    }
+
+    // The caged power core — the thing the child is actually shooting at, and the
+    // part that telegraphs: the damage code drives "bossDome" emissiveIntensity and
+    // opacity down with every hit, so it visibly gutters out as the fight is won.
+    // The orb is deliberately given clear air: earlier revisions crowded it with a
+    // cage and a cap until it read as a green slab between plates instead of a lit
+    // core. Now it sits like an eye between a dark socket below and a dark hooded
+    // brow above — the only two things that touch it.
+    const socket = new T3.Mesh(new T3.CylinderGeometry(0.72, 1.24, 0.44, 8), darkMat);
+    socket.position.y = 0.9; grp.add(socket);
+    const collarRing = new T3.Mesh(new T3.TorusGeometry(0.8, 0.1, 5, 14), MAT.amber);
+    collarRing.position.y = 1.02; collarRing.rotation.x = Math.PI / 2; grp.add(collarRing);
     const dome = new T3.Mesh(
-      new T3.SphereGeometry(1.6, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+      new T3.SphereGeometry(1.0, 20, 14),
       new T3.MeshToonMaterial({ color, gradientMap: gradMap, emissive: color, emissiveIntensity: 0.35, transparent: true, opacity: 0.92 })
     );
-    dome.position.y = 0.4; dome.name = "bossDome"; grp.add(dome);
-    [-0.55, 0.55].forEach((x) => {
-      const eye = new T3.Mesh(new T3.SphereGeometry(0.28, 10, 10), new T3.MeshBasicMaterial({ color: 0xffffff }));
-      eye.position.set(x, 1.0, 1.1); grp.add(eye);
-      const pup = new T3.Mesh(new T3.SphereGeometry(0.13, 8, 8), new T3.MeshBasicMaterial({ color: 0x1e2a44 }));
-      pup.position.set(x, 1.0, 1.33); grp.add(pup);
-    });
-    for (let i = 0; i < 12; i++) {
-      const l = new T3.Mesh(new T3.SphereGeometry(0.22, 8, 8),
-        new T3.MeshBasicMaterial({ color: i % 2 ? 0xff5c6a : 0xffe066 }));
-      const a = (i / 12) * Math.PI * 2;
-      l.position.set(Math.cos(a) * 3.3, -0.15, Math.sin(a) * 3.3);
-      l.name = "bl" + i; grp.add(l);
+    dome.position.y = 1.45; dome.name = "bossDome"; grp.add(dome);
+    const coreGlow = new T3.Mesh(new T3.SphereGeometry(1.24, 16, 10), glowMat(color, 0.1));
+    coreGlow.position.y = 1.45; grp.add(coreGlow);
+    const brow = new T3.Mesh(new T3.CylinderGeometry(0.34, 0.86, 0.4, 8), darkMat);
+    brow.position.y = 2.44; grp.add(brow);
+    // one dark containment band across the orb's equator, so it reads as held
+    const bd = new T3.Mesh(new T3.TorusGeometry(1.03, 0.1, 5, 16), darkMat);
+    bd.position.y = 1.45; bd.rotation.x = Math.PI / 2; grp.add(bd);
+
+    // three primary turrets — whichever way it turns, one is aimed at you
+    const baseG = new T3.BoxGeometry(0.8, 0.44, 0.7);
+    const barrelG = new T3.CylinderGeometry(0.13, 0.16, 1.1, 6);
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.4;
+      const t = new T3.Group();
+      t.position.set(Math.cos(a) * 2.05, 0.42, Math.sin(a) * 2.05);
+      t.rotation.y = Math.PI / 2 - a;
+      t.add(new T3.Mesh(baseG, plateMat));
+      [-0.2, 0.2].forEach((x) => {
+        const br = new T3.Mesh(barrelG, darkMat);
+        br.rotation.x = Math.PI / 2; br.position.set(x, 0.06, 0.66); t.add(br);
+        const mz = new T3.Mesh(GEO.lens, MAT.red);
+        mz.position.set(x, 0.06, 1.22); mz.scale.setScalar(1.2); t.add(mz);
+      });
+      grp.add(t);
     }
-    // emitter the attack beam fires from
-    const emit = new T3.Mesh(new T3.SphereGeometry(0.5, 12, 10),
+
+    // twelve rim weapon pods — the running lights the damage code kills one by one
+    const podG = new T3.BoxGeometry(0.46, 0.34, 0.62);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const pod = new T3.Group();
+      pod.name = "bl" + i;
+      pod.position.set(Math.cos(a) * 3.12, -0.16, Math.sin(a) * 3.12);
+      pod.rotation.y = Math.PI / 2 - a;
+      pod.add(new T3.Mesh(podG, darkMat));
+      const lens = new T3.Mesh(GEO.lens, i % 2 ? MAT.red : MAT.amber);
+      lens.position.z = 0.36; lens.scale.setScalar(1.5); pod.add(lens);
+      grp.add(pod);
+    }
+
+    // ventral cannon: a real housing, with bossEmit as the lens that charges in it
+    const housing = new T3.Mesh(new T3.CylinderGeometry(0.76, 0.56, 0.55, 10), plateMat);
+    housing.position.y = -1.2; grp.add(housing);
+    const collar = new T3.Mesh(new T3.TorusGeometry(0.58, 0.085, 5, 12), MAT.red);
+    collar.position.y = -1.44; collar.rotation.x = Math.PI / 2; grp.add(collar);
+    const emit = new T3.Mesh(new T3.SphereGeometry(0.36, 12, 10),
       new T3.MeshBasicMaterial({ color: 0xff5c6a, transparent: true, opacity: 0.9 }));
-    emit.position.set(0, -0.7, 0); emit.name = "bossEmit"; grp.add(emit);
+    emit.position.set(0, -1.48, 0); emit.name = "bossEmit"; grp.add(emit);
+
     grp.position.set(0, 3.4, -58);
     return grp;
   }
