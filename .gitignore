@@ -1,0 +1,3 @@
+# Agent tooling scratch state — parallel git worktrees created for subagent runs.
+# These are duplicate checkouts of this repo, not project files.
+.claude/
