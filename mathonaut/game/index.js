@@ -1185,133 +1185,384 @@ export function createGame(root, T3) {
   const accentMats = [];
   const acc = () => { const m = toon(0xff4d5e); accentMats.push(m); return m; };
 
-  // ---------- ROCKET: hero model, detail pass ----------
+  // ---------- ROCKET: hero model, authored for the view from ASTERN ----------
+  // The chase camera sits ~5.5u behind the ship and a little above it, so this
+  // model spends its budget where the child actually looks: the dorsal spine,
+  // the aft plating, the fin tips and the engine cluster. The nose is a cheap
+  // cone — it is only ever glimpsed during the launch sweep.
+  //
+  // Construction is kitbashed at build time: dozens of small parts that share a
+  // material are baked into one buffer, so a densely greebled hull still costs
+  // one draw call. Result: ~2x the authored detail at ~1/3 the triangles and
+  // roughly half the draw calls of the old stack-of-primitives model.
   function buildRocket() {
     const s = new T3.Group();
-    const white = toon(0xf7f9ff);
-    const dark = toon(0x22304f);
-    // chunky body with a subtle belly keel
-    const body = new T3.Mesh(new T3.SphereGeometry(0.62, 22, 16), white);
-    body.scale.set(1, 1, 2.0); s.add(body);
-    const keel = new T3.Mesh(new T3.SphereGeometry(0.5, 16, 12), toon(0xdfe6f7));
-    keel.scale.set(0.86, 0.5, 1.7); keel.position.y = -0.28; s.add(keel);
-    // accent nose + stripe
-    const nose = new T3.Mesh(new T3.SphereGeometry(0.63, 22, 12, 0, Math.PI * 2, 0, Math.PI / 2.6), acc());
-    nose.rotation.x = -Math.PI / 2; nose.position.z = -0.62; nose.scale.set(1, 1, 1.35); s.add(nose);
-    const band = new T3.Mesh(new T3.CylinderGeometry(0.615, 0.63, 0.26, 22), acc());
-    band.rotation.x = Math.PI / 2; band.position.z = 0.45; s.add(band);
-    const band2 = new T3.Mesh(new T3.CylinderGeometry(0.63, 0.635, 0.07, 22), dark);
-    band2.rotation.x = Math.PI / 2; band2.position.z = 0.24; s.add(band2);
-    // porthole
-    const rim1 = new T3.Mesh(new T3.TorusGeometry(0.24, 0.065, 10, 22), acc());
-    rim1.position.set(0, 0.5, 0.1); rim1.rotation.x = -0.5; s.add(rim1);
-    const glass = new T3.Mesh(new T3.CircleGeometry(0.22, 20),
-      new T3.MeshToonMaterial({ color: 0x8fe0ff, gradientMap: gradMap, emissive: 0x2a7ab0, emissiveIntensity: 0.55 }));
-    glass.position.set(0, 0.5, 0.1); glass.rotation.x = -0.5; s.add(glass);
-    // antenna
-    const mast = new T3.Mesh(new T3.CylinderGeometry(0.018, 0.026, 0.4, 6), dark);
-    mast.position.set(0, 0.76, 0.5); s.add(mast);
-    const tip = new T3.Mesh(new T3.SphereGeometry(0.05, 8, 8),
-      new T3.MeshBasicMaterial({ color: 0xff4d5e }));
-    tip.position.set(0, 0.97, 0.5); tip.name = "navTip"; s.add(tip);
-    // fins
-    [[-0.62, 0, 0], [0.62, 0, 0], [0, -0.6, Math.PI / 2]].forEach((f) => {
-      const fin = new T3.Mesh(new T3.ConeGeometry(0.34, 0.95, 4), acc());
-      fin.scale.set(1, 0.9, 0.28);
-      fin.rotation.x = Math.PI * 0.5;
-      if (f[2]) fin.rotation.z = f[2];
-      fin.position.set(f[0], f[1], 0.85); s.add(fin);
-    });
-    // nav lights: port red / starboard green — aviation convention, pulsing
-    const navL = new T3.Mesh(new T3.SphereGeometry(0.06, 8, 8), new T3.MeshBasicMaterial({ color: 0xff3344 }));
-    navL.position.set(-0.72, 0, 0.82); navL.name = "navL"; s.add(navL);
-    const navR = new T3.Mesh(new T3.SphereGeometry(0.06, 8, 8), new T3.MeshBasicMaterial({ color: 0x33ff77 }));
-    navR.position.set(0.72, 0, 0.82); navR.name = "navR"; s.add(navR);
-    // engine
-    const noz = new T3.Mesh(new T3.CylinderGeometry(0.3, 0.4, 0.32, 16), dark);
-    noz.rotation.x = Math.PI / 2; noz.position.z = 1.25; s.add(noz);
-    const glowRing = new T3.Mesh(new T3.TorusGeometry(0.34, 0.05, 8, 18),
-      new T3.MeshBasicMaterial({ color: 0xffa53c, transparent: true, opacity: 0.85,
-        blending: T3.AdditiveBlending, depthWrite: false }));
-    glowRing.position.z = 1.42; glowRing.name = "engRing"; s.add(glowRing);
-    const fO = new T3.Mesh(new T3.ConeGeometry(0.3, 1.1, 12), new T3.MeshBasicMaterial({ color: 0xff8a2a }));
-    fO.rotation.x = Math.PI / 2; fO.position.z = 1.95; fO.name = "flameO"; s.add(fO);
-    const fI = new T3.Mesh(new T3.ConeGeometry(0.16, 0.7, 10), new T3.MeshBasicMaterial({ color: 0xffe066 }));
-    fI.rotation.x = Math.PI / 2; fI.position.z = 1.8; fI.name = "flameI"; s.add(fI);
+    const P2 = Math.PI / 2;
 
-    // ---- detail pass (authored density: panel lines, engine core, rivets) ----
-    // Panel-line seams: thin dark rings that hug the hull and break it into
-    // read-able sections (torus rings, so they sit ON the surface, not through it).
-    [[-0.15, 0.6], [0.66, 0.5]].forEach(([z, r]) => {
-      const seam = new T3.Mesh(new T3.TorusGeometry(r, 0.016, 6, 24), dark);
-      seam.rotation.x = Math.PI / 2; seam.position.z = z; s.add(seam);
-    });
-    // Emissive engine core — a hot disc deep in the nozzle. Bright enough to bloom.
-    const core = new T3.Mesh(new T3.CircleGeometry(0.27, 20),
-      new T3.MeshBasicMaterial({ color: 0xffd27a }));
-    core.position.z = 1.34; core.rotation.y = Math.PI; core.name = "engCore"; s.add(core);
-    // Cockpit trim: a bright rim around the porthole reads as polished glass under bloom.
-    const glassRim = new T3.Mesh(new T3.TorusGeometry(0.235, 0.022, 8, 24),
-      new T3.MeshBasicMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.9,
-        blending: T3.AdditiveBlending, depthWrite: false }));
-    glassRim.position.set(0, 0.5, 0.12); glassRim.rotation.x = -0.5; s.add(glassRim);
-    // Rivets: small dark bolts around the accent band imply scale and construction.
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      const bolt = new T3.Mesh(new T3.SphereGeometry(0.028, 6, 6), dark);
-      bolt.position.set(Math.cos(a) * 0.6, Math.sin(a) * 0.6, 0.45); s.add(bolt);
+    // -- build-time kitbash helpers ---------------------------------------
+    const _o = new T3.Object3D();
+    // place a geometry into ship space (clone + bake transform)
+    const put = (g, p, r, sc) => {
+      _o.position.set(p[0] || 0, p[1] || 0, p[2] || 0);
+      _o.rotation.set(r ? (r[0] || 0) : 0, r ? (r[1] || 0) : 0, r ? (r[2] || 0) : 0);
+      _o.scale.set(sc ? sc[0] : 1, sc ? sc[1] : 1, sc ? sc[2] : 1);
+      _o.updateMatrix();
+      return g.clone().applyMatrix4(_o.matrix);
+    };
+    // weld a list of placed geometries into a single mesh
+    const bake = (parts, mat, name) => {
+      let vc = 0, ic = 0;
+      parts.forEach((g) => { vc += g.attributes.position.count; ic += g.index ? g.index.count : g.attributes.position.count; });
+      const pos = new Float32Array(vc * 3), nor = new Float32Array(vc * 3), uv = new Float32Array(vc * 2);
+      const idx = vc > 65535 ? new Uint32Array(ic) : new Uint16Array(ic);
+      let vo = 0, io = 0;
+      parts.forEach((g) => {
+        const n = g.attributes.position.count;
+        pos.set(g.attributes.position.array, vo * 3);
+        nor.set(g.attributes.normal.array, vo * 3);
+        if (g.attributes.uv) uv.set(g.attributes.uv.array, vo * 2);
+        if (g.index) { for (let i = 0; i < g.index.count; i++) idx[io++] = g.index.array[i] + vo; }
+        else { for (let i = 0; i < n; i++) idx[io++] = i + vo; }
+        vo += n; g.dispose();
+      });
+      const out = new T3.BufferGeometry();
+      out.setAttribute("position", new T3.BufferAttribute(pos, 3));
+      out.setAttribute("normal", new T3.BufferAttribute(nor, 3));
+      out.setAttribute("uv", new T3.BufferAttribute(uv, 2));
+      out.setIndex(new T3.BufferAttribute(idx, 1));
+      out.computeBoundingSphere();
+      const m = new T3.Mesh(out, mat);
+      if (name) m.name = name;
+      s.add(m);
+      return m;
+    };
+    const glow = (c, o, extra) => new T3.MeshBasicMaterial(Object.assign({
+      color: c, transparent: true, opacity: o, blending: T3.AdditiveBlending, depthWrite: false, fog: false }, extra || {}));
+
+    // -- material families: one each, reused by every part in that family ---
+    const hullMat = toon(0xf4f7ff);          // painted hull
+    const plateMat = toon(0xccd6ee);         // secondary plating, half a shade down
+    const trimMat = toon(0x2b3a5c);          // panel trim / greeble / bolts
+    // The scene light rig is hot (ambient 1.35 + key 1.55), so any mid-tone
+    // surface facing the key clips to white and then blooms. The engine metals
+    // are deliberately near-black so the nozzle stays a dark frame for the jet.
+    const steelMat = toon(0x4d5878);         // engine housing
+    const bellMat = toon(0x212a3e, { side: T3.DoubleSide });   // open nozzle interior
+    const A = acc();                         // the shop-recoloured accent, shared
+
+    // ================= hull =================
+    // fuselage: an ellipsoid, semi-axes 0.6 / 0.58 / 1.2
+    bake([put(new T3.SphereGeometry(0.6, 16, 11), [0, 0, 0], null, [1, 0.97, 2.0])], hullMat);
+
+    // ================= plating (layered over the hull) =================
+    bake([
+      // aft engine module — a raised collar that reads as a bolted-on section
+      put(new T3.CylinderGeometry(0.56, 0.62, 0.30, 14), [0, 0, 0.72], [P2, 0, 0]),
+      // belly keel fairing
+      put(new T3.BoxGeometry(0.42, 0.30, 1.35), [0, -0.44, 0.10]),
+      // wingtip nacelles — the blades run out and terminate in these
+      put(new T3.CylinderGeometry(0.150, 0.175, 1.05, 8), [-0.85, -0.05, 0.52], [P2, 0, 0]),
+      put(new T3.CylinderGeometry(0.150, 0.175, 1.05, 8), [0.85, -0.05, 0.52], [P2, 0, 0]),
+    ], plateMat);
+
+    // ================= trim, greeble, hardware =================
+    {
+      const seam = (r, z) => put(new T3.CylinderGeometry(r, r, 0.03, 16, 1, true), [0, 0, z], [P2, 0, 0]);
+      const vane = new T3.BoxGeometry(1, 0.085, 0.05);         // scaled per copy
+      const bolt = new T3.OctahedronGeometry(0.033);
+      const parts = [
+        seam(0.582, -0.35), seam(0.606, 0.02), seam(0.570, 0.42),   // hull panel lines
+        // dark shadow gaps either side of the engine module
+        put(new T3.CylinderGeometry(0.628, 0.628, 0.05, 14, 1, true), [0, 0, 0.585], [P2, 0, 0]),
+        put(new T3.CylinderGeometry(0.606, 0.606, 0.05, 14, 1, true), [0, 0, 0.865], [P2, 0, 0]),
+        // heat-radiator vanes along the dorsal spine — the signature read from above
+        put(vane, [0, 0.585, -0.02], null, [0.46, 1, 1]),
+        put(vane, [0, 0.585, 0.20], null, [0.42, 1, 1]),
+        put(vane, [0, 0.585, 0.42], null, [0.37, 1, 1]),
+        // nacelle intake mouths
+        put(new T3.CylinderGeometry(0.135, 0.135, 0.10, 8, 1, true), [-0.85, -0.05, 0.02], [P2, 0, 0]),
+        put(new T3.CylinderGeometry(0.135, 0.135, 0.10, 8, 1, true), [0.85, -0.05, 0.02], [P2, 0, 0]),
+        // dark under-trim where each blade meets its nacelle
+        put(new T3.BoxGeometry(0.34, 0.05, 0.5), [-0.66, -0.11, 0.55]),
+        put(new T3.BoxGeometry(0.34, 0.05, 0.5), [0.66, -0.11, 0.55]),
+      ];
+      // rivets around the engine module, off-axis so they clear the blade roots
+      for (let i = 0; i < 8; i++) {
+        const a = ((i + 0.5) / 8) * Math.PI * 2;
+        parts.push(put(bolt, [Math.cos(a) * 0.625, Math.sin(a) * 0.625, 0.70]));
+      }
+      bake(parts, trimMat);
+      vane.dispose(); bolt.dispose();
     }
-    // Side thruster pods — extra silhouette and function on the flanks.
-    [-1, 1].forEach((sx) => {
-      const pod = new T3.Mesh(new T3.CapsuleGeometry(0.11, 0.42, 4, 8), toon(0xd7deee));
-      pod.rotation.x = Math.PI / 2; pod.position.set(sx * 0.66, -0.16, 0.62); s.add(pod);
-      const podRim = new T3.Mesh(new T3.TorusGeometry(0.11, 0.03, 6, 12),
-        new T3.MeshBasicMaterial({ color: 0x8fd4ff, transparent: true, opacity: 0.7,
-          blending: T3.AdditiveBlending, depthWrite: false }));
-      podRim.rotation.x = Math.PI / 2; podRim.position.set(sx * 0.66, -0.16, 0.86); s.add(podRim);
-    });
+
+    // ================= accent (shop colour) =================
+    {
+      const finB = new T3.ConeGeometry(0.44, 1.06, 4);          // 4-sided blade
+      bake([
+        // nose cone — cheap, the player never sees it head-on
+        put(new T3.ConeGeometry(0.5, 0.72, 14), [0, 0, -1.11], [-P2, 0, 0]),
+        // dorsal spine the radiator vanes sit on
+        put(new T3.CylinderGeometry(0.15, 0.10, 0.66, 6), [0, 0.45, 0.25], [P2, 0, 0]),
+        // two swept blades running out to the nacelles + one ventral blade
+        put(finB, [-0.52, -0.05, 0.43], [-P2, 0, 0], [1, 1, 0.24]),
+        put(finB, [0.52, -0.05, 0.43], [-P2, 0, 0], [1, 1, 0.24]),
+        put(finB, [0, -0.66, 0.43], [-P2, 0, 0], [0.24, 1, 1]),
+        // vertical stabiliser — the tallest thing on the silhouette from astern
+        put(new T3.ConeGeometry(0.42, 0.80, 4), [0, 0.74, 0.58], [-P2, 0, 0], [0.17, 1, 1]),
+        // livery stripes
+        put(new T3.CylinderGeometry(0.628, 0.628, 0.10, 14, 1, true), [0, 0, 0.63], [P2, 0, 0]),
+        put(new T3.CylinderGeometry(0.548, 0.548, 0.09, 16, 1, true), [0, 0, -0.55], [P2, 0, 0]),
+        // shoulder flashes — decals on the upper hull, angled to sit flat on it
+        put(new T3.BoxGeometry(0.06, 0.025, 0.44), [-0.392, 0.454, -0.06], [0, 0, 0.68]),
+        put(new T3.BoxGeometry(0.06, 0.025, 0.44), [0.392, 0.454, -0.06], [0, 0, -0.68]),
+      ], A);
+      finB.dispose();
+    }
+
+    // ================= engine =================
+    // Dark aft bulkhead: its rear face is the annulus that frames the exhaust —
+    // without it the plume reads as a bright blob with no hardware around it.
+    bake([put(new T3.CylinderGeometry(0.56, 0.60, 0.20, 14), [0, 0, 0.99], [P2, 0, 0])], steelMat);
+    bake([
+      // flared main bell, open so you look down it at the hot throat plate
+      put(new T3.CylinderGeometry(0.46, 0.34, 0.30, 12, 1, true), [0, 0, 1.24], [P2, 0, 0]),
+      put(new T3.CylinderGeometry(0.335, 0.335, 0.02, 12), [0, 0, 1.10], [P2, 0, 0]),
+      // nacelle exhaust cans
+      put(new T3.CylinderGeometry(0.155, 0.12, 0.15, 8, 1, true), [-0.85, -0.05, 1.10], [P2, 0, 0]),
+      put(new T3.CylinderGeometry(0.155, 0.12, 0.15, 8, 1, true), [0.85, -0.05, 1.10], [P2, 0, 0]),
+    ], bellMat);
+
+    // ================= canopy =================
+    const canopy = new T3.Mesh(
+      new T3.SphereGeometry(0.28, 12, 5, 0, Math.PI * 2, 0, P2),
+      new T3.MeshToonMaterial({ color: 0x8fe0ff, gradientMap: gradMap, emissive: 0x2a7ab0,
+        emissiveIntensity: 0.55, transparent: true, opacity: 0.85 }));
+    canopy.scale.set(1, 0.8, 1.45); canopy.position.set(0, 0.40, -0.40); s.add(canopy);
+    const glassRim = new T3.Mesh(new T3.TorusGeometry(0.28, 0.02, 5, 14), glow(0xdff4ff, 0.7));
+    glassRim.rotation.x = P2; glassRim.scale.set(1, 1.45, 1);
+    glassRim.position.set(0, 0.41, -0.40); s.add(glassRim);
+
+    // ================= emissive signal parts (these are what bloom) =========
+    // hot disc deep in the throat — faces the camera, so it actually reads
+    // Kept deliberately small and amber: bloom (threshold 0.8, radius 0.55)
+    // smears anything near-white into a disc that swallows the whole nozzle.
+    const core = new T3.Mesh(new T3.CircleGeometry(0.15, 14),
+      new T3.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 1, fog: false }));
+    core.position.z = 1.13; core.name = "engCore"; s.add(core);
+    // heat ring hugging the nozzle lip
+    const engRing = new T3.Mesh(new T3.TorusGeometry(0.475, 0.03, 6, 16), glow(0xff7a1e, 0.4));
+    engRing.position.z = 1.40; engRing.name = "engRing"; s.add(engRing);
+    // soft exhaust wash — a textured disc, so the plume has a halo at speed
+    const halo = new T3.Mesh(new T3.CircleGeometry(0.34, 20),
+      glow(0xffffff, 0.2, { map: radialGlow("#ffb04a") }));
+    halo.position.z = 1.50; halo.name = "engHalo"; s.add(halo);
+    // the jet: additive, open-ended cones so it reads as plume, not a solid cone
+    const fO = new T3.Mesh(new T3.ConeGeometry(0.185, 1.05, 12, 1, true),
+      glow(0xff8a2a, 0.42, { side: T3.DoubleSide }));
+    fO.rotation.x = P2; fO.position.z = 1.70; fO.name = "flameO"; s.add(fO);
+    const fI = new T3.Mesh(new T3.ConeGeometry(0.085, 0.68, 10, 1, true),
+      glow(0xffd27a, 0.85, { side: T3.DoubleSide }));
+    fI.rotation.x = P2; fI.position.z = 1.54; fI.name = "flameI"; s.add(fI);
+    // shock diamonds stacked down the plume — the detail that sells speed
+    const dia = (() => {
+      const o = new T3.OctahedronGeometry(0.05);
+      const m = bake([put(o, [0, 0, 1.46], null, [1, 1, 2.1]),
+                      put(o, [0, 0, 1.76], null, [0.8, 0.8, 1.9]),
+                      put(o, [0, 0, 2.02], null, [0.6, 0.6, 1.7])],
+                     glow(0xfff2c8, 0.7), "flameDia");
+      o.dispose(); return m;
+    })();
+    // nacelle exhaust glows (one mesh, both cans)
+    const podGlow = (() => {
+      const c = new T3.CircleGeometry(0.115, 10);
+      const m = bake([put(c, [-0.85, -0.05, 1.15]), put(c, [0.85, -0.05, 1.15])], glow(0x9fe4ff, 0.7), "podGlow");
+      c.dispose(); return m;
+    })();
+    // trailing-edge strip-lights on all three blades — a wide, readable cue
+    const finGlow = (() => {
+      const bx = new T3.BoxGeometry(1, 1, 0.035);
+      const m = bake([put(bx, [-0.52, -0.05, 0.955], null, [0.78, 0.05, 1]),
+                      put(bx, [0.52, -0.05, 0.955], null, [0.78, 0.05, 1]),
+                      put(bx, [0, -0.66, 0.955], null, [0.05, 0.78, 1])],
+                     glow(0x9fe8ff, 0.5), "finGlow");
+      bx.dispose(); return m;
+    })();
+
+    // nav lights: port red / starboard green atop the nacelles, beacon up top
+    const lampG = new T3.SphereGeometry(0.062, 6, 4);
+    const navL = new T3.Mesh(lampG, new T3.MeshBasicMaterial({ color: 0xff3344, fog: false }));
+    navL.position.set(-0.85, 0.13, 0.84); navL.name = "navL"; s.add(navL);
+    const navR = new T3.Mesh(lampG, new T3.MeshBasicMaterial({ color: 0x33ff77, fog: false }));
+    navR.position.set(0.85, 0.13, 0.84); navR.name = "navR"; s.add(navR);
+    const navTip = new T3.Mesh(lampG, new T3.MeshBasicMaterial({ color: 0xff4d5e, fog: false }));
+    navTip.position.set(0, 1.12, 0.93); navTip.name = "navTip"; s.add(navTip);
+
+    // hand shipFX its handles without a per-frame name lookup
+    s.userData.fx = { core, halo, dia, podGlow, finGlow };
     return s;
   }
 
-  // ---------- UFO: the second pilot option ----------
+  // ---------- UFO: the second pilot option, a genuinely different craft ------
+  // Everything the child sees of the saucer is its TOP deck (the camera looks
+  // down on it) and its underside glow, so that is where the detail goes:
+  // stepped decks, radial panel seams, recessed rim lamps in dark sockets, a
+  // ring of hover jets and a layered anti-grav wash.
+  //
+  // The craft is split in two: an outer ring that SPINS (built radially
+  // symmetric, so it has no "front" by design) and a cockpit that stays level
+  // inside it. That one idea is what stops this reading as a recoloured rocket.
   function buildPlayerUFO() {
     const s = new T3.Group();
-    const hull = new T3.Mesh(new T3.SphereGeometry(1.0, 24, 14), toon(0xe9edf9));
-    hull.scale.set(1, 0.3, 1); s.add(hull);
-    const ringBand = new T3.Mesh(new T3.TorusGeometry(0.94, 0.1, 10, 28), acc());
-    ringBand.rotation.x = Math.PI / 2; s.add(ringBand);
-    const belly = new T3.Mesh(new T3.SphereGeometry(0.56, 18, 12), toon(0xc7cfe6));
-    belly.scale.set(1, 0.55, 1); belly.position.y = -0.16; s.add(belly);
-    const dome = new T3.Mesh(
-      new T3.SphereGeometry(0.48, 18, 14, 0, Math.PI * 2, 0, Math.PI / 2),
-      new T3.MeshToonMaterial({ color: 0xaee6ff, gradientMap: gradMap, transparent: true, opacity: 0.5 }));
-    dome.position.y = 0.14; s.add(dome);
-    // the pilot: a little green mathonaut
-    const head = new T3.Mesh(new T3.SphereGeometry(0.21, 14, 10), toon(0x6fd649));
-    head.position.y = 0.3; s.add(head);
-    [-0.08, 0.08].forEach((x) => {
-      const eye = new T3.Mesh(new T3.SphereGeometry(0.06, 8, 8), new T3.MeshBasicMaterial({ color: 0xffffff }));
-      eye.position.set(x, 0.35, -0.15); s.add(eye);
-      const pup = new T3.Mesh(new T3.SphereGeometry(0.03, 6, 6), new T3.MeshBasicMaterial({ color: 0x1e2a44 }));
-      pup.position.set(x, 0.35, -0.2); s.add(pup);
-    });
-    // rim running-lights
-    for (let i = 0; i < 10; i++) {
-      const l = new T3.Mesh(new T3.SphereGeometry(0.06, 8, 8),
-        new T3.MeshBasicMaterial({ color: 0x8df0ff }));
-      const a = (i / 10) * Math.PI * 2;
-      l.position.set(Math.cos(a) * 0.86, -0.02, Math.sin(a) * 0.86);
-      l.name = "rimL" + i; s.add(l);
+    const spin = new T3.Group(); s.add(spin);      // the part that turns
+    const P2 = Math.PI / 2, TAU = Math.PI * 2, SEG = 20;
+
+    const _o = new T3.Object3D();
+    const put = (g, p, r, sc) => {
+      _o.position.set(p[0] || 0, p[1] || 0, p[2] || 0);
+      _o.rotation.set(r ? (r[0] || 0) : 0, r ? (r[1] || 0) : 0, r ? (r[2] || 0) : 0);
+      _o.scale.set(sc ? sc[0] : 1, sc ? sc[1] : 1, sc ? sc[2] : 1);
+      _o.updateMatrix();
+      return g.clone().applyMatrix4(_o.matrix);
+    };
+    const bake = (parts, mat, name, parent) => {
+      let vc = 0, ic = 0;
+      parts.forEach((g) => { vc += g.attributes.position.count; ic += g.index ? g.index.count : g.attributes.position.count; });
+      const pos = new Float32Array(vc * 3), nor = new Float32Array(vc * 3), uv = new Float32Array(vc * 2);
+      const idx = vc > 65535 ? new Uint32Array(ic) : new Uint16Array(ic);
+      let vo = 0, io = 0;
+      parts.forEach((g) => {
+        const n = g.attributes.position.count;
+        pos.set(g.attributes.position.array, vo * 3);
+        nor.set(g.attributes.normal.array, vo * 3);
+        if (g.attributes.uv) uv.set(g.attributes.uv.array, vo * 2);
+        if (g.index) { for (let i = 0; i < g.index.count; i++) idx[io++] = g.index.array[i] + vo; }
+        else { for (let i = 0; i < n; i++) idx[io++] = i + vo; }
+        vo += n; g.dispose();
+      });
+      const out = new T3.BufferGeometry();
+      out.setAttribute("position", new T3.BufferAttribute(pos, 3));
+      out.setAttribute("normal", new T3.BufferAttribute(nor, 3));
+      out.setAttribute("uv", new T3.BufferAttribute(uv, 2));
+      out.setIndex(new T3.BufferAttribute(idx, 1));
+      out.computeBoundingSphere();
+      const m = new T3.Mesh(out, mat);
+      if (name) m.name = name;
+      (parent || s).add(m);
+      return m;
+    };
+    const glow = (c, o, extra) => new T3.MeshBasicMaterial(Object.assign({
+      color: c, transparent: true, opacity: o, blending: T3.AdditiveBlending, depthWrite: false, fog: false }, extra || {}));
+
+    const shellMat = toon(0xeef2fc);
+    const plateMat = toon(0xc2cbe2);
+    const trimMat = toon(0x1d2947);
+    const A = acc();
+
+    // ================= stepped hull (spins) =================
+    bake([
+      put(new T3.CylinderGeometry(0.74, 0.96, 0.15, SEG), [0, 0.09, 0]),   // lower deck
+      put(new T3.CylinderGeometry(0.44, 0.74, 0.20, SEG), [0, 0.26, 0]),   // upper deck
+      put(new T3.CylinderGeometry(0.96, 0.30, 0.36, SEG), [0, -0.20, 0]),  // tapered underside
+    ], shellMat, null, spin);
+    bake([
+      put(new T3.CylinderGeometry(0.34, 0.24, 0.16, 12), [0, -0.44, 0]),   // belly hub
+    ], plateMat, null, spin);
+
+    // ================= accent (shop colour) =================
+    bake([
+      put(new T3.CylinderGeometry(1.0, 1.0, 0.13, SEG), [0, 0.01, 0]),                        // equator band
+    ], A, null, spin);
+    bake([
+      put(new T3.TorusGeometry(0.475, 0.035, 5, 18), [0, 0.36, 0], [P2, 0, 0]),               // dome collar
+    ], A);
+
+    // ================= trim, sockets, hover-jet housings =================
+    {
+      const parts = [
+        put(new T3.CylinderGeometry(1.005, 1.005, 0.035, SEG, 1, true), [0, 0.075, 0]),       // band seams
+        put(new T3.CylinderGeometry(1.005, 1.005, 0.035, SEG, 1, true), [0, -0.055, 0]),
+        put(new T3.CylinderGeometry(0.62, 0.62, 0.045, 16, 1, true), [0, -0.35, 0]),          // under hatch ring
+      ];
+      // the decks slope ~30 deg, so the seams are pre-tilted to lie flat on them
+      const seamG = put(new T3.BoxGeometry(0.03, 0.04, 0.44), [0, 0, 0], [0.52, 0, 0]);
+      const sockG = new T3.BoxGeometry(0.15, 0.115, 0.12);
+      const jetG = new T3.CylinderGeometry(0.10, 0.135, 0.16, 8);
+      for (let i = 0; i < 8; i++) {                      // radial panel seams on the top deck
+        const a = (i / 8) * TAU;
+        parts.push(put(seamG, [Math.sin(a) * 0.735, 0.147, Math.cos(a) * 0.735], [0, a, 0]));
+      }
+      for (let i = 0; i < 10; i++) {                     // recessed sockets the rim lamps sit in
+        const a = (i / 10) * TAU;
+        parts.push(put(sockG, [Math.sin(a) * 1.0, -0.005, Math.cos(a) * 1.0], [0, a, 0]));
+      }
+      for (let i = 0; i < 5; i++) {                      // hover-jet housings tucked under the rim
+        const a = ((i + 0.5) / 5) * TAU;
+        parts.push(put(jetG, [Math.sin(a) * 0.62, -0.26, Math.cos(a) * 0.62]));
+      }
+      bake(parts, trimMat, null, spin);
+      // cockpit-side trim stays level with the pilot
+      const pupG = new T3.SphereGeometry(0.032, 6, 4);
+      bake([put(new T3.CylinderGeometry(0.455, 0.455, 0.05, 14, 1, true), [0, 0.30, 0]),
+            put(pupG, [-0.075, 0.53, -0.155]), put(pupG, [0.075, 0.53, -0.155])], trimMat);
+      seamG.dispose(); sockG.dispose(); jetG.dispose(); pupG.dispose();
     }
-    // anti-grav under-glow
-    const ug = new T3.Mesh(new T3.TorusGeometry(0.6, 0.09, 8, 22),
-      new T3.MeshBasicMaterial({ color: 0x5ce1ff, transparent: true, opacity: 0.7,
-        blending: T3.AdditiveBlending, depthWrite: false }));
-    ug.rotation.x = Math.PI / 2; ug.position.y = -0.34; ug.name = "ufoGlow"; s.add(ug);
-    const beam = new T3.Mesh(new T3.ConeGeometry(0.5, 0.7, 14, 1, true),
-      new T3.MeshBasicMaterial({ color: 0x5ce1ff, transparent: true, opacity: 0.14,
-        blending: T3.AdditiveBlending, depthWrite: false, side: T3.DoubleSide }));
-    beam.position.y = -0.62; beam.name = "ufoBeam"; s.add(beam);
+
+    // ================= canopy + pilot =================
+    const dome = new T3.Mesh(
+      new T3.SphereGeometry(0.47, 14, 6, 0, TAU, 0, P2),
+      new T3.MeshToonMaterial({ color: 0x9fdcf7, gradientMap: gradMap, transparent: true, opacity: 0.5 }));
+    dome.position.y = 0.36; s.add(dome);
+    const domeRim = new T3.Mesh(new T3.TorusGeometry(0.475, 0.022, 5, 16), glow(0xcaf4ff, 0.6));
+    domeRim.rotation.x = P2; domeRim.position.y = 0.40; s.add(domeRim);
+    // masthead beacon on the dome apex — the one thing that breaks the disc line
+    const beacon = new T3.Mesh(new T3.SphereGeometry(0.055, 6, 5),
+      new T3.MeshBasicMaterial({ color: 0xff5c7a, fog: false }));
+    beacon.position.y = 0.86; s.add(beacon);
+    const head = new T3.Mesh(new T3.SphereGeometry(0.19, 10, 7), toon(0x6fd649));
+    head.position.y = 0.50; s.add(head);
+    {
+      const eyeG = new T3.SphereGeometry(0.062, 6, 5);
+      bake([put(eyeG, [-0.075, 0.53, -0.135]), put(eyeG, [0.075, 0.53, -0.135])],
+           new T3.MeshBasicMaterial({ color: 0xffffff, fog: false }));
+      eyeG.dispose();
+    }
+
+    // ================= rim running-lights (named: shipFX chases them) ========
+    // one shared geometry, but a material each so the chase can dim as well as
+    // swell — ten materials cost nothing per frame and buy a much livelier run
+    const lampG = new T3.SphereGeometry(0.075, 6, 5);
+    const rim = [];
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * TAU;
+      // normal blending, not additive: over the bright accent band an additive
+      // lamp is invisible, a saturated one still reads (and bloom picks it up)
+      const l = new T3.Mesh(lampG, new T3.MeshBasicMaterial({
+        color: 0x3fd8ff, transparent: true, opacity: 1, fog: false }));
+      l.position.set(Math.sin(a) * 1.02, -0.075, Math.cos(a) * 1.02);
+      l.name = "rimL" + i; spin.add(l); rim.push(l);
+    }
+
+    // ================= anti-grav stack =================
+    const ug = new T3.Mesh(new T3.TorusGeometry(0.6, 0.085, 6, 18), glow(0x5ce1ff, 0.7));
+    ug.rotation.x = P2; ug.position.y = -0.36; ug.name = "ufoGlow"; s.add(ug);
+    const halo = new T3.Mesh(new T3.CircleGeometry(1.25, 18),
+      glow(0xffffff, 0.28, { map: radialGlow("#5ce1ff") }));
+    halo.rotation.x = -P2; halo.position.y = -0.42; halo.name = "ufoHalo"; s.add(halo);
+    const jets = (() => {
+      const c = new T3.CircleGeometry(0.10, 8);
+      const parts = [];
+      for (let i = 0; i < 5; i++) {
+        const a = ((i + 0.5) / 5) * Math.PI * 2;
+        parts.push(put(c, [Math.sin(a) * 0.62, -0.35, Math.cos(a) * 0.62], [-P2, 0, 0]));
+      }
+      const m = bake(parts, glow(0x9ff0ff, 0.7), "ufoJets", spin);
+      c.dispose(); return m;
+    })();
+    const beam = new T3.Mesh(new T3.ConeGeometry(0.5, 0.8, 14, 1, true),
+      glow(0x5ce1ff, 0.14, { side: T3.DoubleSide }));
+    beam.position.y = -0.66; beam.name = "ufoBeam"; s.add(beam);
+
+    s.userData.fx = { spin, halo, jets, domeRim, beacon, rim };
     return s;
   }
 
@@ -1347,30 +1598,66 @@ export function createGame(root, T3) {
     trailBits.forEach((b) => b.material.color.setHex(i === 0 ? 0xffb04a : 0x7fe8ff));
   }
 
-  // one FX routine for both craft — power 0..2 drives thrust intensity
+  // One FX routine for both craft — power 0..~2.3 drives thrust intensity.
+  // Runs every frame, so it allocates nothing: all handles were cached on the
+  // model's userData at build time, and every write is scalar.
   function shipFX(power) {
     const t = performance.now();
+    const p = power < 0 ? 0 : (power > 2.2 ? 2.2 : power);
     if (rocketModel.visible) {
+      const fx = rocketModel.userData.fx;
       const fs = power + Math.random() * 0.15;
-      flameO.scale.set(1, Math.max(0.15, fs), 1);
-      flameI.scale.set(1, Math.max(0.15, fs * 1.1), 1);
-      engRing.material.opacity = 0.4 + power * 0.4 + Math.random() * 0.1;
+      const jet = fs < 0.15 ? 0.15 : fs;
+      flameO.scale.set(1, jet, 1);
+      flameI.scale.set(1, jet * 1.1, 1);
+      // heat ramp: idling is a deep orange, full thrust burns toward white
+      flameO.material.opacity = 0.10 + p * 0.09;
+      flameO.material.color.setRGB(1, 0.44 + p * 0.13, 0.16 + p * 0.15);
+      flameI.material.opacity = 0.24 + p * 0.12;
+      // engine hardware: hot throat, glowing nozzle lip, exhaust wash
+      fx.core.scale.setScalar(0.72 + p * 0.18 + Math.random() * 0.03);
+      fx.core.material.opacity = 0.55 + p * 0.2;
+      engRing.material.opacity = 0.12 + p * 0.16 + Math.random() * 0.04;
+      engRing.scale.setScalar(0.96 + p * 0.06);
+      fx.halo.material.opacity = 0.05 + p * 0.09;
+      fx.halo.scale.setScalar(0.85 + p * 0.4);
+      fx.dia.scale.set(0.8 + p * 0.2, 0.8 + p * 0.2, jet);   // shock diamonds stretch with the plume
+      fx.dia.material.opacity = p * 0.2;
+      // outboard nacelles and the blade strip-lights answer the throttle too
+      // podGlow/finGlow are baked off-origin, so they are driven by brightness
+      // only — scaling them would slide them off the hardware they sit in
+      fx.podGlow.material.opacity = 0.24 + p * 0.3;
+      fx.finGlow.material.opacity = 0.22 + p * 0.3;
+      // nav lights: port/starboard alternate, masthead beacon breathes
       const blink = Math.sin(t * 0.006) > 0.6 ? 1 : 0.15;
-      navL.material.opacity = navR.material.opacity = 1;
       navL.scale.setScalar(0.8 + blink * 0.5);
       navR.scale.setScalar(0.8 + (1 - blink) * 0.5);
       navTip.scale.setScalar(0.8 + (Math.sin(t * 0.004) * 0.5 + 0.5) * 0.5);
+      // the hull itself breathes: nose lifts under thrust, gentle idle surge
+      rocketModel.rotation.x = 0.015 + p * 0.02;
+      rocketModel.position.z = Math.sin(t * 0.0022) * 0.014 - p * 0.02;
       engineLight.position.copy(ship.position); engineLight.position.z += 1.8;
     } else {
-      ufoModel.rotation.y += 0.03 + power * 0.02;       // saucer spin
-      const pulse = 0.5 + Math.sin(t * 0.012) * 0.2 + power * 0.25;
-      ufoGlow.material.opacity = Math.min(1, pulse);
-      ufoGlow.scale.setScalar(1 + Math.sin(t * 0.012) * 0.08);
-      ufoBeam.material.opacity = 0.08 + power * 0.08;
-      for (let i = 0; i < 10; i++) {
-        const l = ufoModel.getObjectByName("rimL" + i);
-        l.material.opacity = 1;
-        l.scale.setScalar(0.7 + (Math.sin(t * 0.01 + i * 0.63) * 0.5 + 0.5) * 0.6);
+      const fx = ufoModel.userData.fx;
+      fx.spin.rotation.y += 0.03 + p * 0.02;             // the ring turns, the cockpit doesn't
+      ufoModel.position.y = Math.sin(t * 0.0022) * 0.03;  // hover bob
+      const breathe = Math.sin(t * 0.012);
+      ufoGlow.material.opacity = Math.min(1, 0.5 + breathe * 0.2 + p * 0.25);
+      ufoGlow.scale.setScalar(1 + breathe * 0.08);
+      fx.halo.material.opacity = 0.14 + p * 0.16;
+      fx.halo.scale.setScalar(0.85 + p * 0.2 + breathe * 0.03);
+      fx.jets.material.opacity = 0.26 + p * 0.42;   // baked off-origin: brightness only
+      const bp = Math.sin(t * 0.004) * 0.5 + 0.5;
+      fx.domeRim.material.opacity = 0.4 + bp * 0.3;
+      fx.beacon.scale.setScalar(0.75 + bp * 0.5);
+      ufoBeam.material.opacity = 0.06 + p * 0.07;
+      ufoBeam.scale.set(1, 0.8 + p * 0.35, 1);
+      // running-light chase around the rim, quicker under thrust
+      const rim = fx.rim, sp = t * (0.009 + p * 0.004);
+      for (let i = 0; i < rim.length; i++) {
+        const w = Math.sin(sp + i * 0.63) * 0.5 + 0.5;
+        rim[i].scale.setScalar(0.65 + w * 0.65);
+        rim[i].material.opacity = 0.35 + w * 0.65;
       }
       engineLight.position.copy(ship.position); engineLight.position.y -= 0.7;
     }
