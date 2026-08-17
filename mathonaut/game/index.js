@@ -786,38 +786,68 @@ export function createGame(root, T3) {
       }
   }
   // ---------- speed streaks (near field, elongate with velocity) ----------
+  // Every streak carries a depth class: a few scream past the canopy long and
+  // bright, most creep along in the deep field. That spread is what turns a
+  // static hatching of lines into parallax you can feel.
   const STREAKS = 200;
   const streakData = [];
   const streakPos = new Float32Array(STREAKS * 6);
+  // RGBA vertex colours: hot head, tail fading to nothing. Set on seed only —
+  // per-frame the buffer is untouched, so the taper is free.
+  const streakCol = new Float32Array(STREAKS * 8);
   const streakGeo = new T3.BufferGeometry();
+  let streakColDirty = true;
   function seedStreak(s, fresh) {
     // avoid the play corridor centre so streaks don't obscure gates
     const side = Math.random() < 0.5 ? -1 : 1;
+    // near = 1 is right past the canopy, near = 0 is far out in the field.
+    // Squared random keeps most of them deep, so the fast ones stay special.
+    const near = Math.random();
+    s.mul = 0.8 + near * 1.6;                   // how much it outruns the lanes
+    s.len = 0.55 + near * 1.05;                 // and how far it smears
     s.x = side * (3.2 + Math.random() * 16);
     s.y = -5 + Math.random() * 18;
     s.z = fresh ? 12 - Math.random() * 150 : -140 - Math.random() * 12;
+    // Depth reads through ALPHA, never through a darker colour: a grey line over
+    // a bright galaxy sky would read as a dark scratch instead of fading away.
+    const o = s.i * 8;
+    streakCol[o] = streakCol[o + 1] = streakCol[o + 2] = 1;
+    streakCol[o + 3] = 0.45 + near * 0.55;      // near field burns brighter
+    streakCol[o + 4] = streakCol[o + 5] = streakCol[o + 6] = 1;
+    streakCol[o + 7] = 0;                       // tail dissolves — no hard line ends
+    streakColDirty = true;
   }
-  for (let i = 0; i < STREAKS; i++) { const s = { x: 0, y: 0, z: 0 }; seedStreak(s, true); streakData.push(s); }
+  for (let i = 0; i < STREAKS; i++) {
+    const s = { i, x: 0, y: 0, z: 0, mul: 1, len: 1 };
+    seedStreak(s, true); streakData.push(s);
+  }
   streakGeo.setAttribute("position", new T3.BufferAttribute(streakPos, 3));
+  streakGeo.setAttribute("color", new T3.BufferAttribute(streakCol, 4));
   const streaks = new T3.LineSegments(
     streakGeo,
-    new T3.LineBasicMaterial({ color: 0xcfe4ff, transparent: true, opacity: 0.5, fog: false })
+    new T3.LineBasicMaterial({ color: 0xcfe4ff, vertexColors: true, transparent: true,
+      opacity: 0.5, depthWrite: false, fog: false })
   );
   streaks.frustumCulled = false;
   scene.add(streaks);
   function updateStreaks(dt, speed) {
-    const len = 0.5 + speed * 0.11;            // faster = longer trails
+    const still = reduceMotion();
     const frac = Math.min(1, speed / 55);
-    streaks.material.opacity = 0.22 + frac * 0.45;
+    // Overdrive stretches the near field into warp lines. Under reduced motion
+    // the warp stretch and the brightness lift are both held back.
+    const od = odActive > 0 ? (still ? 0 : 1) : 0;
+    const len = (0.45 + speed * 0.112) * (1 + od * 0.6);
+    streaks.material.opacity = (0.36 + frac * 0.5 + od * 0.14) * (still ? 0.65 : 1);
     for (let i = 0; i < STREAKS; i++) {
       const s = streakData[i];
-      s.z += speed * dt * 1.45;                 // near field outruns the lanes
+      s.z += speed * dt * 1.3 * s.mul;          // near field outruns the lanes
       if (s.z > 12) seedStreak(s, false);
-      const o = i * 6;
+      const o = i * 6, L = len * s.len;
       streakPos[o] = s.x; streakPos[o + 1] = s.y; streakPos[o + 2] = s.z;
-      streakPos[o + 3] = s.x; streakPos[o + 4] = s.y; streakPos[o + 5] = s.z - len;
+      streakPos[o + 3] = s.x; streakPos[o + 4] = s.y; streakPos[o + 5] = s.z - L;
     }
     streakGeo.attributes.position.needsUpdate = true;
+    if (streakColDirty) { streakGeo.attributes.color.needsUpdate = true; streakColDirty = false; }
   }
 
   // ---------- parallax starfield (three depths, three speeds) ----------
@@ -877,39 +907,77 @@ export function createGame(root, T3) {
   }
 
   // ---------- peripheral debris (set dressing that whips past the camera) ----------
+  // Five silhouettes, not one lump: asteroids, torn splinters, ice spires, hull
+  // plates and broken station rings. Each piece is a single mesh (one draw), and
+  // the pool never grows.
   const decor = [];
-  function buildDecorRock() {
-    const R = 0.6 + Math.random() * 2.6;
-    const g = new T3.IcosahedronGeometry(R, 0), p = g.attributes.position;
+  const DECOR_TINT = [0x7d6a58, 0x5f6b8a, 0x8a7c66, 0x49536e, 0x9aa6bd];
+  function roughen(g, amt) {
+    const p = g.attributes.position, v = new T3.Vector3();
     for (let i = 0; i < p.count; i++) {
-      const v = new T3.Vector3().fromBufferAttribute(p, i);
-      v.multiplyScalar(1 + (Math.random() - 0.5) * 0.5);
+      v.fromBufferAttribute(p, i).multiplyScalar(1 + (Math.random() - 0.5) * amt);
       p.setXYZ(i, v.x, v.y, v.z);
     }
     g.computeVertexNormals();
-    return new T3.Mesh(g, toon(Math.random() < 0.5 ? 0x7d6a58 : 0x5f6b8a));
+    return g;
+  }
+  function buildDecorRock(kind) {
+    const R = 0.55 + Math.random() * 1.5;
+    let g, col = DECOR_TINT[(Math.random() * DECOR_TINT.length) | 0];
+    if (kind === 1) {                                   // torn splinter — long and mean
+      g = roughen(new T3.IcosahedronGeometry(R * 0.75, 0), 0.55);
+      g.scale(0.42, 0.5, 2.3);
+    } else if (kind === 2) {                            // ice spire — pale, catches the key light
+      g = new T3.OctahedronGeometry(R * 0.85, 0);
+      g.scale(0.55, 1.9, 0.55);
+      col = 0xa8dcff;
+    } else if (kind === 3) {                            // hull plate — flat wreckage panel
+      g = roughen(new T3.BoxGeometry(R * 1.9, R * 0.3, R * 1.35), 0.18);
+      col = 0x8f9bb2;
+    } else if (kind === 4) {                            // broken station ring
+      g = new T3.TorusGeometry(R * 1.15, R * 0.17, 5, 16, Math.PI * (0.7 + Math.random()));
+    } else {                                            // classic asteroid lump
+      g = roughen(new T3.IcosahedronGeometry(R, 0), 0.5);
+    }
+    return new T3.Mesh(g, toon(col));
   }
   for (let i = 0; i < 14; i++) {
-    const m = buildDecorRock();
+    const m = buildDecorRock(i % 5);
     m.visible = false;
     scene.add(m);
-    decor.push({ grp: m, spin: new T3.Vector3(Math.random() * 2, Math.random() * 2, Math.random()), live: false, mul: 1 });
+    decor.push({
+      grp: m, live: false, mul: 1,
+      spin: new T3.Vector3((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 1.6),
+    });
   }
   function updateDecor(dt, speed) {
+    // Reduced motion keeps the junk drifting past (it is the world, not a flash)
+    // but takes the spin down to a slow, calm tumble.
+    const tumble = reduceMotion() ? 0.3 : 1;
     decor.forEach((d) => {
       if (!d.live) {
-        if (Math.random() < dt * 1.6) {
+        if (Math.random() < dt * 1.9) {
           const side = Math.random() < 0.5 ? -1 : 1;
-          d.grp.position.set(side * (7 + Math.random() * 13), -7 + Math.random() * 22, -135);
+          // near pieces are small and scream past close by; far ones are huge
+          // hulks that barely creep. Both stay well outside the play corridor.
+          const near = Math.random();
+          d.mul = 0.7 + near * 1.2;
+          d.grp.scale.setScalar(2.5 - near * 1.5);
+          d.grp.position.set(
+            side * (9 + (1 - near) * 12 + Math.random() * 4),
+            -9 + Math.random() * 26,
+            -145 - Math.random() * 30
+          );
+          d.grp.rotation.set(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3);
           d.grp.visible = true; d.live = true;
-          d.mul = 0.9 + Math.random() * 0.5;
         }
         return;
       }
       d.grp.position.z += speed * dt * d.mul;
-      d.grp.rotation.x += d.spin.x * dt;
-      d.grp.rotation.y += d.spin.y * dt;
-      if (d.grp.position.z > 20) { d.grp.visible = false; d.live = false; }
+      d.grp.rotation.x += d.spin.x * dt * tumble;
+      d.grp.rotation.y += d.spin.y * dt * tumble;
+      d.grp.rotation.z += d.spin.z * dt * tumble;
+      if (d.grp.position.z > 24) { d.grp.visible = false; d.live = false; }
     });
   }
 
@@ -1682,24 +1750,52 @@ export function createGame(root, T3) {
   let trailIdx = 0;
 
   // ---------- explosion particles ----------
+  // An impact is three cooperating pools, all fixed size:
+  //   core  — a hot white pop that appears at full brightness and dies in ~0.2s
+  //   bits  — sparks that fly out hard, brake, then hang and fade
+  //   puff  — a soft warm wash that expands behind the sparks (big hits only)
+  // Nothing here allocates per event or per frame; every effect is short so it
+  // never sits on top of the lane the child is reading.
   const boomBits = [];
   {
     const boomColors = [0xff8a2a, 0xffe066, 0xffffff, 0xff5c3c];
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 24; i++) {
       const b = new T3.Mesh(
-        new T3.SphereGeometry(0.16 + Math.random() * 0.12, 8, 8),
-        new T3.MeshBasicMaterial({ color: boomColors[i % 4], transparent: true, opacity: 1, depthWrite: false })
+        new T3.SphereGeometry(0.1 + Math.random() * 0.08, 7, 6),
+        new T3.MeshBasicMaterial({ color: boomColors[i % 4], transparent: true, opacity: 1, depthWrite: false, fog: false })
       );
       b.visible = false;
       b.userData.vel = new T3.Vector3();
       b.userData.life = 0;
+      b.userData.drag = 4;
       scene.add(b); boomBits.push(b);
+    }
+  }
+  const boomCores = [];
+  {
+    const coreGeo = new T3.SphereGeometry(0.5, 12, 9);
+    for (let i = 0; i < 5; i++) {
+      const c = new T3.Mesh(coreGeo, new T3.MeshBasicMaterial({
+        color: 0xfff3d0, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+      c.visible = false; c.userData.life = 0;
+      scene.add(c); boomCores.push(c);
+    }
+  }
+  const boomPuffs = [];
+  {
+    const puffGeo = new T3.PlaneGeometry(1, 1);
+    const puffTex = radialGlow("#ff9a4a");
+    for (let i = 0; i < 4; i++) {
+      const p = new T3.Mesh(puffGeo, new T3.MeshBasicMaterial({
+        map: puffTex, color: 0xffc890, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+      p.visible = false; p.userData.life = 0;
+      scene.add(p); boomPuffs.push(p);
     }
   }
   // expanding shockwave rings — the punctuation mark for big moments
   const waves = [];
-  for (let i = 0; i < 4; i++) {
-    const w = new T3.Mesh(new T3.TorusGeometry(1, 0.06, 8, 36),
+  for (let i = 0; i < 6; i++) {
+    const w = new T3.Mesh(new T3.TorusGeometry(1, 0.05, 6, 40),
       new T3.MeshBasicMaterial({ color: 0x5ce1ff, transparent: true, opacity: 0,
         blending: T3.AdditiveBlending, depthWrite: false, fog: false }));
     w.visible = false; w.userData.life = 0;
@@ -1708,47 +1804,111 @@ export function createGame(root, T3) {
   let waveIdx = 0;
   function shockwave(pos, color, big) {
     const w = waves[(waveIdx = (waveIdx + 1) % waves.length)];
+    const d = w.userData;
     w.visible = true;
     w.position.copy(pos);
     w.material.color.setHex(color);
-    w.userData.life = 1;
-    w.userData.big = big ? 1.8 : 1;
-    w.scale.setScalar(0.2);
+    d.life = 1;
+    d.r = big ? 5.4 : 2.8;                       // final radius
+    d.rate = big ? 2.9 : 3.7;                    // 1/lifetime — short and snappy
+    d.peak = (big ? 0.8 : 0.62) * (reduceMotion() ? 0.5 : 1);
+    // the ring is a thing in the world, so it rushes at you with everything else
+    d.vz = state === S.RUN ? curSpeed * 0.4 : 0;
+    w.scale.set(0.25, 0.25, 0.1);
     w.lookAt(camera.position);
   }
   function updateWaves(dt) {
-    waves.forEach((w) => {
-      if (!w.visible) return;
-      w.userData.life -= dt * 1.8;
-      if (w.userData.life <= 0) { w.visible = false; return; }
-      const grow = (1 - w.userData.life) * 6 * w.userData.big + 0.2;
-      w.scale.setScalar(grow);
-      w.material.opacity = w.userData.life * 0.8;
-    });
+    for (let i = 0; i < waves.length; i++) {
+      const w = waves[i];
+      if (!w.visible) continue;
+      const d = w.userData;
+      d.life -= dt * d.rate;
+      if (d.life <= 0) { w.visible = false; w.material.opacity = 0; continue; }
+      w.position.z += d.vz * dt;
+      // easeOutCubic: snaps out on the first frames, then eases to a stop
+      const u = 1 - d.life, e = 1 - (1 - u) * (1 - u) * (1 - u);
+      const r = 0.25 + e * d.r;
+      // squash the tube along the view axis so the rim reads as a crisp line
+      w.scale.set(r, r, r * 0.3);
+      // hold bright for the first beat, then fall away before it can cover the lane
+      w.material.opacity = d.peak * Math.min(1, d.life * 1.7) * (1 - e * 0.35);
+    }
   }
 
-  let boomIdx = 0;
+  let boomIdx = 0, coreIdx = 0, puffIdx = 0;
   function boom(pos, power, count) {
+    const mo = motion();
+    // hot core — the frame-one punch that makes the hit register
+    const c = boomCores[(coreIdx = (coreIdx + 1) % boomCores.length)];
+    c.visible = true;
+    c.position.copy(pos);
+    c.userData.life = 1;
+    c.userData.rate = 6.4 - Math.min(2.4, power * 1.4);   // heavier blasts hold a beat longer
+    c.userData.size = 0.45 + power * 0.8;
+    c.userData.peak = 0.5 + 0.5 * mo;
+    c.scale.setScalar(c.userData.size * 0.4);
+    c.material.opacity = c.userData.peak;
+    // soft wash — only for real impacts, never for the little pickup pops
+    if (power >= 0.85) {
+      const p = boomPuffs[(puffIdx = (puffIdx + 1) % boomPuffs.length)];
+      p.visible = true;
+      p.position.copy(pos);
+      p.userData.life = 1;
+      p.userData.size = 2 + power * 2.4;
+      p.userData.peak = (0.26 + power * 0.1) * (0.45 + 0.55 * mo);
+      p.scale.setScalar(p.userData.size * 0.35);
+      p.material.opacity = p.userData.peak;
+      p.lookAt(camera.position);
+    }
+    // sparks — thrown hard, braked hard, and smeared along their own travel so
+    // they read as tracers instead of floating balls
     for (let i = 0; i < count; i++) {
       const b = boomBits[(boomIdx = (boomIdx + 1) % boomBits.length)];
+      const v = b.userData.vel;
       b.visible = true;
       b.position.copy(pos);
-      b.userData.vel.set(Math.random() - 0.5, Math.random() - 0.35, Math.random() - 0.5).normalize()
-        .multiplyScalar((3 + Math.random() * 5) * power);
-      b.userData.life = 0.55 + Math.random() * 0.3;
-      b.scale.setScalar(power);
+      v.set(Math.random() - 0.5, Math.random() - 0.35, Math.random() - 0.5).normalize()
+        .multiplyScalar((4.5 + Math.random() * 8) * power);
+      b.userData.life = 0.36 + Math.random() * 0.32;
+      b.userData.drag = 4 + Math.random() * 3.5;
+      b.material.opacity = 1;
+      b.lookAt(pos.x + v.x, pos.y + v.y, pos.z + v.z);   // +Z now points along flight
+      const s = power * (0.5 + Math.random() * 0.7);
+      b.scale.set(s, s, s * (2 + Math.random() * 1.8));
     }
   }
   function updateBooms(dt) {
-    boomBits.forEach((b) => {
-      if (!b.visible) return;
+    for (let i = 0; i < boomBits.length; i++) {
+      const b = boomBits[i];
+      if (!b.visible) continue;
       b.userData.life -= dt;
-      if (b.userData.life <= 0) { b.visible = false; return; }
+      if (b.userData.life <= 0) { b.visible = false; continue; }
       b.position.addScaledVector(b.userData.vel, dt);
-      b.userData.vel.multiplyScalar(1 - dt * 2.2);
-      b.material.opacity = Math.min(1, b.userData.life * 2.2);
-      b.scale.multiplyScalar(1 - dt * 0.8);
-    });
+      b.userData.vel.multiplyScalar(Math.max(0, 1 - dt * b.userData.drag));
+      b.material.opacity = Math.min(1, b.userData.life * 3);
+      b.scale.multiplyScalar(1 - dt * 0.7);
+    }
+    for (let i = 0; i < boomCores.length; i++) {
+      const c = boomCores[i];
+      if (!c.visible) continue;
+      const d = c.userData;
+      d.life -= dt * d.rate;
+      if (d.life <= 0) { c.visible = false; c.material.opacity = 0; continue; }
+      const u = 1 - d.life;
+      c.scale.setScalar(d.size * (0.4 + (1 - (1 - u) * (1 - u)) * 0.85));
+      c.material.opacity = d.peak * d.life * d.life;
+    }
+    for (let i = 0; i < boomPuffs.length; i++) {
+      const p = boomPuffs[i];
+      if (!p.visible) continue;
+      const d = p.userData;
+      d.life -= dt * 2.4;
+      if (d.life <= 0) { p.visible = false; p.material.opacity = 0; continue; }
+      const u = 1 - d.life;
+      p.scale.setScalar(d.size * (0.35 + u * 0.9));
+      p.material.opacity = d.peak * d.life * d.life;
+      p.lookAt(camera.position);
+    }
   }
 
   // ---------- holographic laser sign (answer panels) ----------
