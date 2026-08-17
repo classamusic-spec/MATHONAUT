@@ -846,7 +846,11 @@ export function createGame(root, T3) {
       ringAt(1.02, 0.02, 14, 0, 0.13),         // outer collar — walls the lane in without touching its neighbour
       ...blips(6, 0.64, 0.055, 0.6),           // sparks riding the rim
       [new T3.CylinderGeometry(0.28, 0.44, 3.6, 16, 1, true), put(0, 8.0, 0), 0.045], // funnel veil, necks down-track
-      [new T3.CylinderGeometry(0.03, 0.03, 8.5, 5, 1, true), put(0, 7.5, 0), 0.55],   // centre rail dash
+      // Centre rail dash. Kept deliberately dim: at 0.55 the left/right lanes'
+      // rails read in perspective as two hot diagonals slashing across the play
+      // field, which in a dodge-the-hazard game looks like a laser to avoid.
+      // It only needs to imply the channel, not announce itself.
+      [new T3.CylinderGeometry(0.03, 0.03, 8.5, 5, 1, true), put(0, 7.5, 0), 0.24],   // centre rail dash
     ]);
     // wide arch: reads the whole 3-lane channel as one road, and gives scale
     const archGeo = merge([
@@ -1225,7 +1229,7 @@ export function createGame(root, T3) {
     for (let i = 0; i < 4; i++) {
       const m = new T3.Mesh(new T3.PlaneGeometry(46, 44), new T3.MeshBasicMaterial({
         map: auroraTex(a, b), transparent: true, opacity: 0.4, blending: T3.AdditiveBlending,
-        depthWrite: false, fog: false, side: T3.DoubleSide }));
+        depthWrite: false, fog: false, side: T3.DoubleSide, forceSinglePass: true }));
       m.position.set(-44 + i * 28, 24, -6 - i * 3); m.rotation.z = (i - 1.5) * 0.14; m.userData.ph = i * 1.3;
       g.add(m);
     }
@@ -1395,7 +1399,8 @@ export function createGame(root, T3) {
       return m;
     };
     const glow = (c, o, extra) => new T3.MeshBasicMaterial(Object.assign({
-      color: c, transparent: true, opacity: o, blending: T3.AdditiveBlending, depthWrite: false, fog: false }, extra || {}));
+      color: c, transparent: true, opacity: o, blending: T3.AdditiveBlending, depthWrite: false, fog: false,
+      forceSinglePass: true }, extra || {}));
 
     // -- material families: one each, reused by every part in that family ---
     const hullMat = toon(0xf4f7ff);          // painted hull
@@ -1609,7 +1614,8 @@ export function createGame(root, T3) {
       return m;
     };
     const glow = (c, o, extra) => new T3.MeshBasicMaterial(Object.assign({
-      color: c, transparent: true, opacity: o, blending: T3.AdditiveBlending, depthWrite: false, fog: false }, extra || {}));
+      color: c, transparent: true, opacity: o, blending: T3.AdditiveBlending, depthWrite: false, fog: false,
+      forceSinglePass: true }, extra || {}));
 
     const shellMat = toon(0xeef2fc);
     const plateMat = toon(0xc2cbe2);
@@ -2579,6 +2585,7 @@ export function createGame(root, T3) {
           new T3.MeshBasicMaterial({
             color: 0x5ce1ff, transparent: true, opacity: 0.3,
             blending: T3.AdditiveBlending, depthWrite: false, side: T3.DoubleSide, fog: false,
+            forceSinglePass: true,
           })
         );
         beam.position.set(LANES[l] + px, 0.35, 0);
@@ -2728,7 +2735,8 @@ export function createGame(root, T3) {
   const bossBeam = new T3.Mesh(
     new T3.CylinderGeometry(0.5, 0.5, 80, 14, 1, true),
     new T3.MeshBasicMaterial({ color: 0xff5c6a, transparent: true, opacity: 0,
-      blending: T3.AdditiveBlending, depthWrite: false, side: T3.DoubleSide, fog: false })
+      blending: T3.AdditiveBlending, depthWrite: false, side: T3.DoubleSide, fog: false,
+      forceSinglePass: true })
   );
   bossBeam.rotation.x = Math.PI / 2;
   bossBeam.visible = false;
@@ -3698,10 +3706,18 @@ export function createGame(root, T3) {
       b.position.x = b.userData.lx + bendX(b.position.z);
       b.position.y = curveY(b.position.z) - 0.85 + Math.sin(performance.now() * 0.002 + b.position.z) * 0.08;
       b.rotation.y += dt * 2;
-      // brief flare as each beacon passes the ship — a metronome for speed
-      const near = 1 - Math.min(1, Math.abs(b.position.z - PLAYER_Z) / 9);
-      b.material.opacity = (0.18 + 0.5 * Math.max(0, 1 + b.position.z / 132)) + near * 0.5;
-      b.scale.setScalar(1 + near * 0.9);
+      const d = b.position.z - PLAYER_Z;                 // <0 ahead of the ship, >0 past it
+      let op = 0.18 + 0.5 * Math.max(0, 1 + b.position.z / 132);   // distance fade-in
+      // Metronome flare for speed — but it now peaks a few units AHEAD of the
+      // ship and dies before the marker reaches the camera. It used to peak
+      // exactly AT the camera while scaling to 1.9x, so every station smeared
+      // bright arcs and diagonals across the play field right where the child
+      // is trying to read hazards.
+      const flare = Math.max(0, 1 - Math.abs(d + 7) / 6);
+      op += flare * 0.42;
+      const passing = Math.max(0, Math.min(1, (d + 4) / 5));       // 0 at 4 ahead -> 1 as it reaches us
+      b.material.opacity = op * (1 - passing);
+      b.scale.setScalar(1 + flare * 0.25);
     });
     {
       updateStars(dt, speed);
