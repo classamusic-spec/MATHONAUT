@@ -776,24 +776,104 @@ export function createGame(root, T3) {
   let bendCur = 0, bendTarget = 0, bendTimer = 4;
   const bendX = (z) => { const d = z - PLAYER_Z; return d < 0 ? bendCur * d * d : 0; };
 
-  // ---------- open-space flight path: laser hoop markers ----------
+  // ---------- open-space flight path: three channels of light ----------
+  // The child has to see THREE LANES at 40 units a second, and we refuse to put
+  // a floor under the ship — so the track is implied entirely with light. Each
+  // lane repeats a "light gate" station every 12 units: a hot rim hoop on the
+  // lane centre line, a dim outer collar that walls the channel in, a tapered
+  // funnel that necks down-track (a chevron you read as direction) and a dashed
+  // centre rail. Stacked in perspective they fuse into three glowing tubes
+  // converging on the vanishing point, and the ship ends up flying *inside* its
+  // lane's rim. A wide arch ring sweeps past every 66 units as a scale cue —
+  // foreground rail, midground lane tube, background arch.
+  //
+  // Two things make this cheap (+2770 tris, +2 draw calls over the old hoops).
+  // (1) Every part of a station is merged into ONE shared geometry, so a station
+  // is a single draw call and all 35 markers share two geometries — the kit gets
+  // richer without getting more expensive. (2) The flight loop spins each marker
+  // with `rotation.y += dt*2`; laying the mesh on its back (rotation.x = -PI/2)
+  // turns that mandated spin into a ROLL about the track axis, so any part built
+  // symmetric about its local +Y (which then points down-track) holds its shape
+  // while still obeying the loop. Per-part brightness rides in vertex colours —
+  // one material per marker, so `applyGalaxy()` can still retint by `userData.lx`
+  // and the loop can still drive `material.opacity` for the distance fade and the
+  // fly-past flare.
   const laneMarkers = [];
   {
-    const beaconGeo = new T3.TorusGeometry(0.3, 0.035, 6, 18);
-    for (let l = 0; l < 3; l++)
-      for (let j = 0; j < 11; j++) {
-        const b = new T3.Mesh(
-          beaconGeo,
-          new T3.MeshBasicMaterial({
-            color: l === 1 ? 0x8df0ff : 0x4f9dff,
-            transparent: true, opacity: 0.5, depthWrite: false,
-            blending: T3.AdditiveBlending, fog: false,
-          })
-        );
-        b.position.set(LANES[l], 0, -j * 12 + 4);
-        b.userData.lx = LANES[l];
-        scene.add(b); laneMarkers.push(b);
+    // merge [geometry, matrix, brightness] parts into one position+colour buffer
+    const merge = (parts) => {
+      let n = 0;
+      const chunks = [];
+      parts.forEach(([geo, mat, lum]) => {
+        const g = geo.index ? geo.toNonIndexed() : geo;
+        if (mat) g.applyMatrix4(mat);
+        const a = g.attributes.position.array;
+        chunks.push([a, lum]); n += a.length;
+      });
+      const pos = new Float32Array(n), col = new Float32Array(n);
+      let o = 0;
+      chunks.forEach(([a, lum]) => {
+        pos.set(a, o);
+        for (let i = 0; i < a.length; i++) col[o + i] = lum;
+        o += a.length;
+      });
+      const out = new T3.BufferGeometry();
+      out.setAttribute("position", new T3.BufferAttribute(pos, 3));
+      out.setAttribute("color", new T3.BufferAttribute(col, 3));
+      return out;
+    };
+    // local +Y = down-track (away from the player), local +Z = up
+    const put = (x, y, z, rx) => new T3.Matrix4().makeRotationX(rx || 0).setPosition(x, y, z);
+    const LIE = -Math.PI / 2;                  // stand a torus up across the track
+    const ringAt = (r, tube, seg, y, lum) =>
+      [new T3.TorusGeometry(r, tube, 3, seg), put(0, y, 0, LIE), lum];
+    const blips = (count, radius, size, lum) => {
+      const out = [];
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2;
+        out.push([new T3.TetrahedronGeometry(size), put(Math.cos(a) * radius, 0, Math.sin(a) * radius), lum]);
       }
+      return out;
+    };
+    // One lane station (282 tris). Everything is line-thin on purpose: the loop
+    // scales markers up to 1.9x as they sweep past the camera, so any part with
+    // real surface area turns into a windscreen-filling veil down there. The two
+    // parts that do have area (the funnel and the rail) are parked well down-track
+    // in local space, where that same scale-up pushes them further away instead of
+    // into the player's face — and they fill the gap to the next station.
+    const laneGeo = merge([
+      ringAt(0.62, 0.038, 22, 0, 0.7),         // hot rim on the lane centre line
+      ringAt(1.02, 0.02, 14, 0, 0.13),         // outer collar — walls the lane in without touching its neighbour
+      ...blips(6, 0.64, 0.055, 0.6),           // sparks riding the rim
+      [new T3.CylinderGeometry(0.28, 0.44, 3.6, 16, 1, true), put(0, 8.0, 0), 0.045], // funnel veil, necks down-track
+      [new T3.CylinderGeometry(0.03, 0.03, 8.5, 5, 1, true), put(0, 7.5, 0), 0.55],   // centre rail dash
+    ]);
+    // wide arch: reads the whole 3-lane channel as one road, and gives scale
+    const archGeo = merge([
+      ringAt(4.6, 0.055, 24, 0, 0.35),
+      ringAt(4.15, 0.022, 20, 0, 0.12),
+      ...blips(8, 4.6, 0.05, 0.4),
+    ]);
+    const marker = (geo, lx, z, hex) => {
+      const b = new T3.Mesh(geo, new T3.MeshBasicMaterial({
+        color: hex, vertexColors: true, transparent: true, opacity: 0.5,
+        depthWrite: false, blending: T3.AdditiveBlending, fog: false,
+        // The funnel and the rail are open tubes, so both faces have to draw —
+        // but a transparent DoubleSide material makes three render the mesh
+        // TWICE (back pass, then front pass) to get the sorting right. Additive
+        // blending is order-independent, so that second pass buys nothing and
+        // costs 35 draw calls and ~9.9k triangles a frame. Force one pass.
+        side: T3.DoubleSide, forceSinglePass: true,
+      }));
+      b.position.set(lx, 0, z);
+      b.rotation.x = LIE;            // the loop's y-spin becomes a roll about the track
+      b.userData.lx = lx;
+      scene.add(b); laneMarkers.push(b);
+    };
+    for (let l = 0; l < 3; l++)
+      for (let j = 0; j < 11; j++)   // 11 * 12 = the loop's 132-unit recycle span
+        marker(laneGeo, LANES[l], -j * 12 + 4, l === 1 ? 0x8df0ff : 0x4f9dff);
+    for (let j = 0; j < 2; j++) marker(archGeo, 0, -j * 66 - 18, 0x8df0ff);
   }
   // ---------- speed streaks (near field, elongate with velocity) ----------
   // Every streak carries a depth class: a few scream past the canopy long and
@@ -1946,57 +2026,99 @@ export function createGame(root, T3) {
     }
     return tex;
   }
+  // A projected holo-panel: chamfered bezel, an offset "thickness" glow, hot
+  // corner brackets and a glass sheen. Two rules govern every stroke here.
+  // (1) The material is ADDITIVE, so dark = invisible: depth has to be built out
+  //     of brightness, never out of shadow.
+  // (2) The panel is the world-space *echo* of the answer, not the answer surface
+  //     (that is the HUD strip — measured, 9.2s of reading time vs 1.1s here).
+  //     So the interior stays darkest exactly behind the numerals and all the
+  //     detail hugs the frame, where it can never crowd the digit.
+  // Canvas size is deliberately unchanged: 48 of these live in the LRU cache and
+  // a bigger canvas would multiply the GPU upload that once cost us the context.
   function buildLaserSign(text, style) {
     const S = LSTYLE[style] || LSTYLE.idle;
     const W = 256, H = 150;
     const cv = document.createElement("canvas");
     cv.width = W; cv.height = H;
     const g = cv.getContext("2d");
-    const r = 22, pad = 14;
-    const box = (fn) => {
+    const pad = 13, cut = 25;                     // chamfered sci-fi corners
+    const L = pad, R = W - pad, T = pad, B = H - pad;
+    const box = (inset) => {
+      const l = L + inset, r = R - inset, t = T + inset, b = B - inset;
+      const c = Math.max(5, cut - inset);
       g.beginPath();
-      g.moveTo(pad + r, pad); g.lineTo(W - pad - r, pad);
-      g.quadraticCurveTo(W - pad, pad, W - pad, pad + r);
-      g.lineTo(W - pad, H - pad - r);
-      g.quadraticCurveTo(W - pad, H - pad, W - pad - r, H - pad);
-      g.lineTo(pad + r, H - pad);
-      g.quadraticCurveTo(pad, H - pad, pad, H - pad - r);
-      g.lineTo(pad, pad + r);
-      g.quadraticCurveTo(pad, pad, pad + r, pad);
-      g.closePath(); fn();
+      g.moveTo(l + c, t); g.lineTo(r - c, t); g.lineTo(r, t + c);
+      g.lineTo(r, b - c); g.lineTo(r - c, b); g.lineTo(l + c, b);
+      g.lineTo(l, b - c); g.lineTo(l, t + c);
+      g.closePath();
     };
-    // volumetric interior (additive: dark = invisible, so this reads as glassy haze)
-    const grd = g.createLinearGradient(0, pad, 0, H - pad);
-    grd.addColorStop(0, S.tint + ".42)");
-    grd.addColorStop(0.5, S.tint + ".16)");
-    grd.addColorStop(1, S.tint + ".42)");
-    g.fillStyle = grd; box(() => g.fill());
-    // scanlines
-    g.globalAlpha = 0.22; g.fillStyle = S.edge;
-    for (let y = pad + 4; y < H - pad; y += 7) g.fillRect(pad, y, W - pad * 2, 1);
+    const corners = [[L, T, 1, 1], [R, T, -1, 1], [L, B, 1, -1], [R, B, -1, -1]];
+    // volumetric interior — bright at the rails, near-black behind the numerals
+    const grd = g.createLinearGradient(0, T, 0, B);
+    grd.addColorStop(0, S.tint + ".52)");
+    grd.addColorStop(0.28, S.tint + ".15)");
+    grd.addColorStop(0.5, S.tint + ".07)");
+    grd.addColorStop(0.72, S.tint + ".15)");
+    grd.addColorStop(1, S.tint + ".52)");
+    g.fillStyle = grd; box(0); g.fill();
+    // glass sheen raking across the top-left
+    const sheen = g.createLinearGradient(L, T, W * 0.65, B);
+    sheen.addColorStop(0, "rgba(255,255,255,.13)");
+    sheen.addColorStop(0.4, "rgba(255,255,255,.02)");
+    sheen.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = sheen; box(2); g.fill();
+    // scanlines, fading out towards the middle so the digit stays clean
+    g.fillStyle = S.edge;
+    for (let y = T + 5; y < B; y += 6) {
+      g.globalAlpha = 0.04 + 0.20 * Math.abs((y - H / 2) / (H / 2 - pad));
+      g.fillRect(L + 4, y, R - L - 8, 1);
+    }
     g.globalAlpha = 1;
-    // glowing frame
-    g.shadowColor = S.glow; g.shadowBlur = 16;
-    g.strokeStyle = S.edge; g.lineWidth = 3.5; box(() => g.stroke());
-    g.shadowBlur = 8; g.lineWidth = 1.2; box(() => g.stroke());
-    // corner brackets — tech read
-    g.shadowBlur = 10; g.lineWidth = 4; g.strokeStyle = S.edge;
-    const c = 18;
-    [[pad, pad, 1, 1], [W - pad, pad, -1, 1], [pad, H - pad, 1, -1], [W - pad, H - pad, -1, -1]]
-      .forEach(([x, y, sx, sy]) => {
-        g.beginPath();
-        g.moveTo(x + sx * c, y); g.lineTo(x + sx * 4, y);
-        g.moveTo(x, y + sy * c); g.lineTo(x, y + sy * 4);
-        g.stroke();
-      });
-    // numerals
+    // panel thickness: the same outline dropped a few px, dim and blurred
+    g.shadowColor = S.glow; g.shadowBlur = 12;
+    g.strokeStyle = S.glow; g.globalAlpha = 0.3; g.lineWidth = 4;
+    g.save(); g.translate(0, 3.5); box(0); g.stroke(); g.restore();
+    // bezel: soft halo, hot edge, recessed hairline
+    g.globalAlpha = 0.5; g.shadowBlur = 18; g.lineWidth = 5.5; g.strokeStyle = S.edge;
+    box(0); g.stroke();
+    g.globalAlpha = 1; g.shadowBlur = 9; g.lineWidth = 2.4;
+    box(0); g.stroke();
+    g.globalAlpha = 0.4; g.shadowBlur = 0; g.lineWidth = 1;
+    box(6); g.stroke();
+    // hot corner brackets that wrap the chamfer
+    g.globalAlpha = 0.95; g.shadowBlur = 12; g.lineWidth = 3.4; g.lineCap = "round";
+    corners.forEach(([x, y, sx, sy]) => {
+      g.beginPath();
+      g.moveTo(x + sx * (cut + 12), y); g.lineTo(x + sx * cut, y);
+      g.lineTo(x, y + sy * cut); g.lineTo(x, y + sy * (cut + 12));
+      g.stroke();
+    });
+    // corner nodes + emitter ticks along the rails
+    g.globalAlpha = 1; g.shadowBlur = 8; g.fillStyle = S.edge;
+    corners.forEach(([x, y, sx, sy]) => {
+      g.beginPath(); g.arc(x + sx * cut * 0.5, y + sy * cut * 0.5, 2.3, 0, 7); g.fill();
+    });
+    g.globalAlpha = 0.45; g.shadowBlur = 0;
+    for (let i = -2; i <= 2; i++) {
+      g.fillRect(W / 2 + i * 14 - 1, T + 5, 2, 4);
+      g.fillRect(W / 2 + i * 14 - 1, B - 9, 2, 4);
+    }
+    // side notches — they point at the numeral without ever touching it
+    g.globalAlpha = 0.8; g.shadowBlur = 6;
+    [[L, 1], [R, -1]].forEach(([x, sx]) => {
+      g.beginPath();
+      g.moveTo(x + sx * 2, H / 2 - 9); g.lineTo(x + sx * 12, H / 2); g.lineTo(x + sx * 2, H / 2 + 9);
+      g.closePath(); g.fill();
+    });
+    // numerals: a soft bloom pass under a crisp core
     const str = String(text);
-    g.shadowColor = S.glow; g.shadowBlur = 22;
-    g.fillStyle = S.text;
-    g.font = (str.length > 3 ? "900 68px " : "900 96px ") +
-      '-apple-system,"SF Pro Display","Segoe UI",sans-serif';
     g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText(str, W / 2, H / 2 + 2);
+    g.font = (str.length > 3 ? "900 66px " : "900 94px ") +
+      '-apple-system,"SF Pro Display","Segoe UI",sans-serif';
+    g.shadowColor = S.glow; g.fillStyle = S.text;
+    g.globalAlpha = 0.5; g.shadowBlur = 26; g.fillText(str, W / 2, H / 2 + 2);
+    g.globalAlpha = 1; g.shadowBlur = 10; g.fillText(str, W / 2, H / 2 + 2);
     g.shadowBlur = 0;
     const tx = new T3.CanvasTexture(cv);
     tx.anisotropy = 4;
@@ -2004,21 +2126,44 @@ export function createGame(root, T3) {
   }
 
   // ---------- opaque sign texture (used by star coins) ----------
+  // Struck-medallion read: domed body, milled rim, a lit bevel up top and a
+  // shaded one below, so the coin face catches the key light like the toon
+  // props around it. Square canvas because it is mapped onto a square plane —
+  // the old 256x150 sheet stretched the glyph by 1.7x.
   function textTexture(text, borderColor, bgColor, txtColor) {
+    const S = 256, C = S / 2;
     const cv = document.createElement("canvas");
-    cv.width = 256; cv.height = 150;
+    cv.width = S; cv.height = S;
     const g = cv.getContext("2d");
-    const r = 64;
-    g.fillStyle = bgColor || "#ffffff";
-    g.beginPath(); g.moveTo(r, 6); g.lineTo(256 - r, 6); g.quadraticCurveTo(250, 6, 250, r);
-    g.lineTo(250, 150 - r); g.quadraticCurveTo(250, 144, 256 - r, 144); g.lineTo(r, 144);
-    g.quadraticCurveTo(6, 144, 6, 150 - r); g.lineTo(6, r); g.quadraticCurveTo(6, 6, r, 6);
-    g.closePath(); g.fill();
-    g.strokeStyle = borderColor || "#38d98a"; g.lineWidth = 12; g.stroke();
-    g.fillStyle = txtColor || "#1e2a66";
-    g.font = String(text).length > 4 ? '900 58px "Segoe UI",sans-serif' : '900 84px "Segoe UI",sans-serif';
+    const face = bgColor || "#ffffff", rim = borderColor || "#38d98a", ink = txtColor || "#1e2a66";
+    // domed body — highlight up and to the left, rim colour rolling off the edge
+    const body = g.createRadialGradient(C * 0.74, C * 0.66, C * 0.1, C, C, C * 0.98);
+    body.addColorStop(0, "#ffffff");
+    body.addColorStop(0.34, face);
+    body.addColorStop(0.86, face);
+    body.addColorStop(1, rim);
+    g.fillStyle = body;
+    g.beginPath(); g.arc(C, C, C - 8, 0, 7); g.fill();
+    // milled rim
+    g.strokeStyle = rim; g.lineWidth = 15;
+    g.beginPath(); g.arc(C, C, C - 16, 0, 7); g.stroke();
+    // bevel: lit arc above, shaded arc below
+    g.lineWidth = 6; g.strokeStyle = "rgba(255,255,255,.8)";
+    g.beginPath(); g.arc(C, C, C - 29, Math.PI * 1.06, Math.PI * 1.78); g.stroke();
+    g.lineWidth = 8; g.strokeStyle = "rgba(0,0,0,.12)";
+    g.beginPath(); g.arc(C, C, C - 29, Math.PI * 0.1, Math.PI * 0.8); g.stroke();
+    // glyph, sitting in its own struck recess
+    const str = String(text);
     g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText(String(text), 128, 80);
+    g.font = (str.length > 4 ? "900 92px " : "900 138px ") + '"Segoe UI",system-ui,sans-serif';
+    g.fillStyle = "rgba(0,0,0,.16)"; g.fillText(str, C, C + 10);
+    g.fillStyle = ink; g.fillText(str, C, C + 4);
+    // specular kiss
+    const spec = g.createRadialGradient(C * 0.66, C * 0.52, 2, C * 0.66, C * 0.52, C * 0.62);
+    spec.addColorStop(0, "rgba(255,255,255,.5)");
+    spec.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = spec;
+    g.beginPath(); g.arc(C, C, C - 20, 0, 7); g.fill();
     const tx = new T3.CanvasTexture(cv); tx.anisotropy = 4; return tx;
   }
 
