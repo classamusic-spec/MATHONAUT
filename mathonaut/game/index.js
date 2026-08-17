@@ -585,7 +585,7 @@ export function createGame(root, T3) {
   // flat white. Exposure nudged up so the vibrant palette stays vibrant.
   try {
     if (T3.ACESFilmicToneMapping != null) renderer.toneMapping = T3.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.22;
+    renderer.toneMappingExposure = 1.14;
   } catch (e) { /* fake renderer in tests: ignore */ }
 
   // WebGL contexts get dropped under memory pressure on mobile. Without this the
@@ -620,7 +620,7 @@ export function createGame(root, T3) {
       composer.addPass(new RenderPass(scene, camera));
       // (resolution, strength, radius, threshold): only genuinely bright things
       // (signs, beacons, the sun, engine wash) bloom — not the whole scene.
-      bloomPass = new UnrealBloomPass(size, 0.7, 0.55, 0.8);
+      bloomPass = new UnrealBloomPass(size, 0.5, 0.5, 0.88);
       composer.addPass(bloomPass);
       composer.addPass(new OutputPass());
       composer.setPixelRatio(curDPR);
@@ -628,6 +628,10 @@ export function createGame(root, T3) {
     } catch (e) { composer = null; bloomPass = null; bloomOn = false; }
   }
   function draw() {
+    // Count the WHOLE frame, not just the last pass. renderer.info auto-resets
+    // on every render() call, so with the bloom composer the telemetry was
+    // reading the final fullscreen quad and reporting "1 draw, 1 triangle".
+    try { renderer.info.autoReset = false; renderer.info.reset(); } catch (e) { /* fake renderer in tests */ }
     if (composer && bloomOn) composer.render();
     else renderer.render(scene, camera);
   }
@@ -727,18 +731,24 @@ export function createGame(root, T3) {
     scene.add(m); nebulae.push(m);
   });
 
-  scene.add(new T3.AmbientLight(0xa8c4ff, 1.35));
-  const keyLight = new T3.DirectionalLight(0xfff0e0, 1.55);   // warm key, higher contrast
+  // Light rig. Ambient used to sit at 1.35 which, with a key of 1.55, drove every
+  // mid-tone toon surface to clip white — authored panel lines and engine detail
+  // were being blown out and then smeared further by bloom. Ambient is now a true
+  // fill, the key does the shaping, and the rim separates the craft from the sky.
+  scene.add(new T3.AmbientLight(0xa8c4ff, 0.62));
+  const keyLight = new T3.DirectionalLight(0xfff0e0, 1.7);    // warm key — does the form
   keyLight.position.set(5, 11, 4); scene.add(keyLight);
-  const rimLight = new T3.DirectionalLight(0x7fa8ff, 0.75);   // recolored per galaxy
+  const rimLight = new T3.DirectionalLight(0x7fa8ff, 1.05);   // recolored per galaxy; separates silhouette
   rimLight.position.set(-6, 4, -8); scene.add(rimLight);
-  const underFill = new T3.DirectionalLight(0x4d6ab0, 0.28);  // bounce from below — kills dead shadows
+  const underFill = new T3.DirectionalLight(0x4d6ab0, 0.34);  // bounce from below — kills dead shadows
   underFill.position.set(0, -6, 3); scene.add(underFill);
   const engineLight = new T3.PointLight(0xffa53c, 1.4, 8);
   scene.add(engineLight);
 
-  // chunky toy shading ramp (RGBA, 4px wide for safe GL alignment)
-  const gradData = new Uint8Array([100,100,100,255, 160,160,160,255, 215,215,215,255, 255,255,255,255]);
+  // Chunky toy shading ramp (RGBA, 4px wide for safe GL alignment). The dark step
+  // was 100/255 — too light to read as shadow, so forms went flat. Deepened for
+  // real terminator contrast while keeping the top steps bright for readability.
+  const gradData = new Uint8Array([58,62,78,255, 132,138,155,255, 208,212,224,255, 255,255,255,255]);
   const gradMap = new T3.DataTexture(gradData, 4, 1, T3.RGBAFormat);
   gradMap.minFilter = gradMap.magFilter = T3.NearestFilter;
   gradMap.needsUpdate = true;
@@ -3186,14 +3196,16 @@ export function createGame(root, T3) {
 
     const tb = trailBits[(trailIdx = (trailIdx + 1) % trailBits.length)];
     tb.visible = true;
-    tb.position.copy(ship.position); tb.position.y -= 0.05; tb.position.z += 1.7;
-    tb.material.opacity = 0.5;
-    tb.scale.set(1, 1, 1);
+    // Spawn the plume BEHIND the engine bell, not on top of it — at the old
+    // +1.7 the disc sat exactly over the nozzle and veiled the whole engine.
+    tb.position.copy(ship.position); tb.position.y -= 0.05; tb.position.z += 2.75;
+    tb.material.opacity = 0.34;
+    tb.scale.set(0.72, 0.72, 0.72);
     trailBits.forEach((b) => {
       if (!b.visible) return;
       b.position.z += speed * dt * 0.9;
       b.material.opacity -= dt * 1.6;
-      b.scale.multiplyScalar(1 - dt * 1.2);
+      b.scale.multiplyScalar(1 + dt * 0.5);      // plume widens as it falls away
       if (b.material.opacity <= 0) b.visible = false;
       b.lookAt(camera.position);
     });
